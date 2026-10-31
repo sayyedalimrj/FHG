@@ -21,8 +21,11 @@ jobs:
     runs-on: windows-2022
     permissions:
       contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Generate original FHG multi-resolution icon
         run: python native/app/resources/generate_icon.py
       - name: Generate original FHG application icon
@@ -71,14 +74,29 @@ jobs:
         shell: pwsh
         run: |
           ./packaging/build-offline.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+      - name: Create SHA-256 download checksum
+        shell: pwsh
+        run: |
+          $package = 'FHG-experimental-win-x64.zip'
+          if (!(Test-Path -LiteralPath $package)) { throw 'FHG package missing' }
+          $hash = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path (Get-Location) ($package + '.sha256')), ($hash + '  ' + $package + "`n"), [Text.Encoding]::ASCII)
+          Write-Host "SHA256: $hash  $package"
+      - name: Attest official build provenance (not an Authenticode signature)
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: FHG-experimental-win-x64.zip
       - name: Upload offline experimental browser
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: FHG-experimental-OFFLINE-browser-windows-x64
-          path: FHG-experimental-win-x64.zip
+          path: |
+            FHG-experimental-win-x64.zip
+            FHG-experimental-win-x64.zip.sha256
           if-no-files-found: error
       - name: Upload experimental components
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: FHG-experimental-controller-x64
           path: dist/*

@@ -8,6 +8,8 @@
 #include <shellapi.h>
 #include <commdlg.h>
 #include <shlobj.h>
+#include <shobjidl.h>
+#include <objbase.h>
 #include <iphlpapi.h>
 #include <tcpmib.h>
 #include <filesystem>
@@ -17,6 +19,7 @@
 #pragma comment(lib,"Shell32.lib")
 #pragma comment(lib,"Comdlg32.lib")
 #pragma comment(lib,"Iphlpapi.lib")
+#pragma comment(lib,"Ole32.lib")
 namespace fs=std::filesystem;
 enum { E_CONFIG=110, E_STATUS=111, B_BROWSE=120, B_CONNECT=121,
        B_DISCONNECT=122, B_BROWSER=123, B_GUARD=124, B_OPTIONS=125 };
@@ -36,6 +39,32 @@ static void persistConfig(){
   std::error_code ec;fs::create_directories(stateDir,ec);
   FILE* f=nullptr;_wfopen_s(&f,(stateDir/L"config-path.txt").c_str(),L"wt, ccs=UTF-8");
   if(f){fputws(configFile.c_str(),f);fclose(f);}
+}
+static void createShortcut(const std::wstring& exePath){
+  // Per-user Desktop only. Never overwrite another shortcut.
+  const HRESULT init=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED);
+  if(FAILED(init) && init!=RPC_E_CHANGED_MODE)return;
+  PWSTR desktop=nullptr;
+  if(SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop,0,nullptr,&desktop))){
+    fs::path shortcut=fs::path(desktop)/L"FHG Browser.lnk";
+    CoTaskMemFree(desktop);
+    if(!fs::exists(shortcut)){
+      IShellLinkW* link=nullptr;
+      if(SUCCEEDED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,
+                                    IID_PPV_ARGS(&link)))){
+        link->SetPath(exePath.c_str());
+        link->SetWorkingDirectory(root.c_str());
+        link->SetDescription(L"FHG: isolated Firefox and Hiddify");
+        IPersistFile* persist=nullptr;
+        if(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&persist)))){
+          persist->Save(shortcut.c_str(),TRUE);
+          persist->Release();
+        }
+        link->Release();
+      }
+    }
+  }
+  if(SUCCEEDED(init))CoUninitialize();
 }
 static void restoreConfig(){
   FILE* f=nullptr;_wfopen_s(&f,(stateDir/L"config-path.txt").c_str(),L"rt, ccs=UTF-8");
@@ -230,6 +259,7 @@ static LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM w,LPARAM l){
 int WINAPI wWinMain(HINSTANCE ins,HINSTANCE,LPWSTR,int show){
   wchar_t exe[MAX_PATH]={};GetModuleFileNameW(nullptr,exe,MAX_PATH);
   root=fs::path(exe).parent_path();
+  createShortcut(exe);
   browserDir=root/L"Firefox"; firefoxExe=browserDir/L"firefox.exe";
   coreExe=root/L"Core"/L"HiddifyCli.exe"; guardExe=root/L"FHGGuard.exe";
   stateDir=root/L"Data"; profileDir=stateDir/L"FirefoxProfile";

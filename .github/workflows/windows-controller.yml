@@ -4,6 +4,7 @@ on:
     paths:
       - "native/app/**"
       - "ui/**"
+      - "tests/**"
       - "native/guard/**"
       - "firefox/distribution/**"
       - ".github/workflows/windows-controller.yml"
@@ -32,6 +33,11 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Generate original FHG multi-resolution icon
         run: python native/app/resources/generate_icon.py ui/Assets/FHG.ico
+      - name: Test subscription quota parsing and profile persistence
+        shell: pwsh
+        run: |
+          dotnet run --project tests/SubscriptionChecks.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Subscription tests failed' }
       - name: Publish self-contained WPF interface
         shell: pwsh
         run: |

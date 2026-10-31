@@ -104,6 +104,8 @@ public sealed class SubscriptionStore
     {
         text = text.Trim();
         if (text.Length is 0 or > 1048576) throw new InvalidDataException("Profile must be between 1 B and 1 MiB");
+        if (text.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Subscription URLs must use HTTPS; insecure HTTP is not accepted.");
         bool url = Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
                    uri.Scheme == Uri.UriSchemeHttps && !text.Contains('\n') && !text.Contains('\r');
         if (url && uri!.UserInfo.Length > 0)
@@ -208,14 +210,27 @@ public sealed class SubscriptionStore
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FHG/0.2.0");
         using var head = new HttpRequestMessage(HttpMethod.Head, item.Source);
-        using var response = await http.SendAsync(head, HttpCompletionOption.ResponseHeadersRead, ct);
-        // HEAD-only metadata read; a provider without metadata must not be assigned made-up quota values.
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"Subscription metadata unavailable (HTTP {(int)response.StatusCode}).");
-        foreach (var key in new[] { "subscription-userinfo", "profile-title" })
-            if (response.Headers.TryGetValues(key, out var values))
-                ApplyHeader(item, key, values.FirstOrDefault() ?? "");
-        item.RefreshedUtc = DateTimeOffset.UtcNow;
+        using var headResponse = await http.SendAsync(head, HttpCompletionOption.ResponseHeadersRead, ct);
+        // Most providers expose metadata in HEAD. Some reject HEAD, so fall back to
+        // response headers from GET without downloading or buffering its body.
+        HttpResponseMessage? getResponse = null;
+        try
+        {
+            var response = headResponse;
+            if (response.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.NotImplemented)
+            {
+                using var get = new HttpRequestMessage(HttpMethod.Get, item.Source);
+                getResponse = await http.SendAsync(get, HttpCompletionOption.ResponseHeadersRead, ct);
+                response = getResponse;
+            }
+            if (!response.IsSuccessStatusCode)
+                throw new HttpRequestException($"Subscription metadata unavailable (HTTP {(int)response.StatusCode}).");
+            foreach (var key in new[] { "subscription-userinfo", "profile-title" })
+                if (response.Headers.TryGetValues(key, out var values))
+                    ApplyHeader(item, key, values.FirstOrDefault() ?? "");
+            item.RefreshedUtc = DateTimeOffset.UtcNow;
+        }
+        finally { getResponse?.Dispose(); }
     }
 }
 

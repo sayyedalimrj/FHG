@@ -1,0 +1,22 @@
+name: Policy validation
+on:
+  push:
+  pull_request:
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Firefox distribution policy
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          p=json.loads(Path("firefox/distribution/policies.json").read_text(encoding="utf-8"))["policies"]
+          proxy=p["Proxy"]
+          assert proxy["Mode"]=="manual" and proxy["Locked"] is True
+          assert proxy["SOCKSProxy"]=="127.0.0.1:12334"
+          assert proxy["SOCKSVersion"]==5 and proxy["UseProxyForDNS"] is True
+          assert proxy["Passthrough"]==""
+          assert p["Preferences"]["media.peerconnection.enabled"]=={"Value": False, "Status": "locked"}
+          print("Firefox policy static validation passed. This is NOT a leak test.")

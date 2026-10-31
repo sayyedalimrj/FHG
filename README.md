@@ -1,42 +1,54 @@
-# FHG — Firefox + Hiddify, isolated browser networking
+# FHG — Firefox + Hiddify Secure Browser (experimental alpha)
 
-**Project stage: design and browser policy scaffold; no complete Windows browser binary or verified egress guard yet.**
+**Status: a Windows x64 offline build exists. It is NOT certified leak-free or production-ready.**
 
-## Goal
+FHG combines an unmodified, current official Firefox distribution, a native Windows controller and HiddifyCLI/Core in a single downloadable offline package. It is not yet a custom-built Firefox fork or an in-browser connection-settings UI.
 
-Deliver a **modern, fast, maintained and isolated browser** in which **every browser-originated network connection must go through Hiddify Core**. Hiddify Core runs as a separate, supervised networking process behind a loopback SOCKS5 proxy at `127.0.0.1:12334`.
+## Download / build
 
-**When Hiddify is disconnected or crashes, the browser stays open.** Tabs, settings, history, bookmarks and local pages keep working. New online requests fail with a connection/proxy error and **never fall back to DIRECT**. Once Hiddify reconnects, normal browsing can resume without restarting the browser.
+- [Windows controller CI and full offline build](https://github.com/sayyedalimrj/FHG/actions/workflows/windows-controller.yml).
+- The artifact **FHG-experimental-OFFLINE-browser-windows-x64** contains a ZIP; extract that ZIP to a permanent writable folder.
+- Launch **FHG.exe** (not firefox.exe). A per-user Desktop shortcut is created on first launch. No separate Hiddify UI or CMD window is needed.
+- Select a **local Hiddify configuration file**, select *Connect Hiddify*, then *Open browser*. The first browser start asks for Administrator permission only if the WFP guard rules are missing.
+- If your Hiddify CLI needs exported app configuration, put it at `Data/hiddify-options.json` (local only, never commit secrets). The expected mixed SOCKS5 listener is `127.0.0.1:12334`.
+- When the local proxy stops, **the browser stays open** and online pages should fail rather than fall back to direct connections. You can reconnect without reopening Firefox.
 
-The protection is *network fail-closed*, **not** *application shutdown*.
+## Architecture
 
-## Browser choice
+```text
+FHG.exe                     (normal user, Win32 UI and core supervision)
+ ├─ FHGGuard.exe             (one-time elevated WFP policy installer; read-only status later)
+ ├─ Core/HiddifyCli.exe      (supervised subprocess, hiddify-core.dll)
+ └─ Firefox/firefox.exe      (dedicated FHG profile, locked SOCKS5 settings)
 
-Start with a maintained upstream **Firefox release**, a separate FHG distribution and profile, and only the minimal patches required for native connection/status UI. Preserve a viable security-update path. Do not freeze Firefox at a known old version or fork the whole networking stack unless necessary.
+Firefox processes -- only outbound IPv4 TCP 127.0.0.1:12334 --> HiddifyCLI
+HiddifyCLI -- configured proxy nodes --> external network
+```
 
-## Source structure
+The FHGGuard Windows Filtering Platform rules are path-scoped to FHG's Firefox executables; they do not change Windows Firewall profiles or the existing Firefox installation. Source: [native app](native/app/FHG.cpp), [WFP guard](native/guard/FHGGuard.cpp), [policy](firefox/distribution/policies.json), [bundle script](packaging/build-offline.ps1).
 
-- [Requirements & acceptance criteria](docs/REQUIREMENTS.md) — user-visible behavior and security goals.
-- [Transport architecture](docs/ARCHITECTURE.md) — isolated Hiddify Core process and Windows WFP guard.
-- [Firefox policy](firefox/distribution/policies.json) — locked SOCKS5, remote DNS, WebRTC disabled.
-- [Policy-check CI](.github/workflows/policy-check.yml) — validates static policy **only**.
-- [Native WFP guard prototype](native/guard/FHGGuard.cpp) and [MSVC build workflow](.github/workflows/windows-guard.yml) — builds an experimental executable and runs a localhost socket isolation test; full Firefox/Hiddify leak testing remains undone.
-- [Lightweight MVP scope](docs/LEAN-MVP.md) — removes unnecessary product UI, not browser security protections.
+## What is tested
 
-## Core invariants
+- Compiles both native EXEs in GitHub Actions on Windows x64.
+- Windows synthetic network test of guard allowing TCP to `127.0.0.1:12334` and blocking another port, without affecting a separate executable: [test run](https://github.com/sayyedalimrj/FHG/actions/runs/41166109092).
+- Full bundle generated from Mozilla's official latest Windows Firefox release and the official Hiddify Windows portable v4.1.1 archive; CI verifies ZIP integrity and required files.
 
-1. All FHG browser executables are subject to outbound WFP protection *before they can access a network*. Only IPv4 TCP to `127.0.0.1:12334` is allowed; disallow other IPv4, all IPv6, other protocols and direct DNS.
-2. This protection targets FHG's executable paths only; **existing Firefox installations and other applications are unaffected**.
-3. The Hiddify local listener is bound to loopback and under the supervisor's control. Audit Hiddify's outbound routing to rule out unintended DIRECT destinations.
-4. A proxy outage produces an offline/error state in open tabs, **not browser termination**. No traffic must escape the FHG browser via OS proxy settings or direct sockets.
-5. Verify behavior under disconnects, port takeover, crashes, reinstalls, updates, malicious websites and IPv4/IPv6 DNS/WebRTC tests on real Windows machines before publishing no-leak claims.
+## What is NOT tested / limitations
 
-## Implementation status
+- **The integrated Firefox and HiddifyCLI have not been exercised together on a real desktop**, and the app has not passed full IPv4/IPv6/DNS/WebRTC packet-capture tests.
+- WFP guard status tests stored rules, not complete effective-policy arbitration against other WFP providers or all spawned helper processes.
+- A malicious process may race to bind the local SOCKS endpoint after Hiddify exits; TCP port ownership is observed but not cryptographically pinned.
+- Hiddify Core routing can include `DIRECT` decisions; restrict and audit your config if privacy from the target network is required.
+- The Firefox release must be updated frequently; this portable ZIP does not provide a signed, validated automatic update workflow.
+- Startup controller is a separate window, not yet a browser toolbar, and the unsigned binaries may trigger SmartScreen warnings.
+- Code-signing certificates, a custom app icon, complete cross-machine testing, and security hardening are still needed.
 
-This repo contains an **experimental native WFP guard source** but does **not** yet contain a built Firefox fork, integrated Hiddify Core, runtime-validated WFP guard, validated installer/updater, or real browser + Hiddify leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
+**Do not use this alpha for high-risk or anonymity-critical browsing.** Browser networking must be verified with live packet captures before claiming no leaks.
 
-Upstream: [Firefox](https://github.com/mozilla-firefox/firefox) | [Hiddify Core](https://github.com/hiddify/hiddify-core)
+## Roadmap
 
-## Verified engineering milestone
+1. Secure the local Hiddify endpoint against port takeover, audit outbound routes.
+2. Automate in-VM Firefox + Hiddify traffic-leak tests, crash/disconnect/reconnect tests, Windows 10/11 coverage.
+3. Fold connection control into the browser experience, implement signed updates and branding without disabling Firefox security features.
 
-[Windows localhost WFP integration run](https://github.com/sayyedalimrj/FHG/actions/runs/41166109092): **passed** on Windows Server 2022. A synthetic FHG-scoped socket client could reach TCP `127.0.0.1:12334`, could not connect to `127.0.0.1:22334` (WSA 10013), an unrelated executable remained able to connect, and a down proxy did not create a new path. This is a **limited test**, not a demonstrated absence of leaks in Firefox or Hiddify. No integrated app release has been produced yet.
+[Architecture](docs/ARCHITECTURE.md) • [Requirements](docs/REQUIREMENTS.md) • [Slim scope](docs/LEAN-MVP.md)

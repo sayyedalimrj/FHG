@@ -13,7 +13,7 @@ cmake -S native/guard -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
-Also see the [Windows CI workflow](../../.github/workflows/windows-guard.yml) for a Windows build artifact. The CI job compiles only and does **not** establish any security guarantees or run live leak tests.
+Also see the [Windows CI workflow](../../.github/workflows/windows-guard.yml) for a Windows build artifact. The CI job compiles the guard and runs a **synthetic localhost socket test** on a Windows runner. This is not a browser-wide leak test.
 
 ## Manual developer usage (after vetting the code; use a test VM)
 
@@ -41,7 +41,7 @@ Therefore if correctly applied, only IPv4 TCP to `127.0.0.1:12334` remains permi
 
 ## Caveats
 
-- There is **no live network test** in the code or CI; `status` checks persisted WFP objects and their conditions, **not effective path arbitration**. Test against real network traffic before using this for browsing.
+- The Windows CI now exercises actual localhost TCP sockets for a temporary test EXE: permitted port 12334 succeeds, another loopback port is blocked with WSAEACCES, unrelated EXE remains allowed, and proxy absence does not enable an alternate port. This **does not test Firefox, Hiddify, IPv6, DNS, process spawning, full WFP arbitration, or real-internet leakage**. The `status` command checks stored rules, not globally effective policy.
 - The installer is an experimental test utility, not a production guard. Do not distribute it to end users as a certified no-leak product.
 - If the Firefox directory moves, a helper EXE is added, or a browser update changes its process layout, guard installation/verification must be revisited **before network activity**.
 - These rules do not constrain Hiddify Core or a different executable spawned outside the Firefox folder. The final product needs a trusted supervisor, process identity hardening, Hiddify route audit, port ownership checks, and runtime policy validation.

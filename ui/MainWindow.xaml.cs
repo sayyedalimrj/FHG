@@ -189,7 +189,7 @@ public partial class MainWindow : Window
         }
         if (HasForeignListener())
         {
-            SetMessage("Port 12334 is already owned by another process. Refusing to connect.");
+            SetMessage("Port 12334 is already owned or exposed by an untrusted listener. Refusing to connect.");
             return;
         }
         string input = ConfigInput.Text.Trim();
@@ -323,8 +323,13 @@ public partial class MainWindow : Window
                 uint ip = unchecked((uint)Marshal.ReadInt32(buffer, offset + 4));
                 uint port = unchecked((uint)Marshal.ReadInt32(buffer, offset + 8));
                 uint pid = unchecked((uint)Marshal.ReadInt32(buffer, offset + 20));
-                bool addressMatch = ip == 0 || ip == 0x0100007F; // 0.0.0.0 or 127.0.0.1 on little-endian Windows
-                if (addressMatch && ConvertPort(port) == ProxyPort) return pid;
+                // Only an EXACT loopback bind is trusted. A wildcard listener on
+                // 0.0.0.0 may expose the SOCKS endpoint to the local network.
+                if (ConvertPort(port) == ProxyPort)
+                {
+                    if (ip == 0) return uint.MaxValue; // wildcard: fail closed, even if Hiddify owns it
+                    if (ip == 0x0100007F) return pid; // 127.0.0.1, little-endian Windows
+                }
             }
             return null;
         }
@@ -349,7 +354,7 @@ public partial class MainWindow : Window
         bool active = ProxyOwnedByCore();
         CoreStatus.Text = !CoreRunning ? "Stopped" : active ? "Running" : "Starting";
         CoreStatus.Foreground = active ? Good : Warning;
-        ProxyStatus.Text = active ? "Available" : HasForeignListener() ? "Other process" : "Unavailable";
+        ProxyStatus.Text = active ? "Available" : HasForeignListener() ? "Untrusted listener" : "Unavailable";
         ProxyStatus.Foreground = active ? Good : Warning;
         UpdateConnectionState(active);
     }

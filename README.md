@@ -6,7 +6,7 @@ FHG combines an unmodified, current official Firefox distribution, a self-contai
 
 ## Download / build
 
-- **[Download FHG v0.2.0-alpha.1 (Windows x64) from GitHub Releases](https://github.com/sayyedalimrj/FHG/releases/tag/v0.2.0-alpha.1)** — experimental, unsigned, not certified leak-free.
+- **[Download FHG v0.3.0-alpha.1 (Windows x64) from GitHub Releases](https://github.com/sayyedalimrj/FHG/releases/tag/v0.3.0-alpha.1)** — experimental, unsigned, not certified leak-free.
 - [Windows controller CI and full offline build](https://github.com/sayyedalimrj/FHG/actions/workflows/windows-controller.yml).
 - [Security review (2026-10-31)](docs/SECURITY-REVIEW-2026-10-31.md) — verified controls and outstanding risks.
 - The artifact **FHG-experimental-OFFLINE-browser-windows-x64** contains a ZIP; extract that ZIP to a permanent writable folder.

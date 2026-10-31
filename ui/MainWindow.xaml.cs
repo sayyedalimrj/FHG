@@ -41,6 +41,8 @@ public partial class MainWindow : Window
     private string _selector = "";
     private DateTime _lastNodesRefresh = DateTime.MinValue;
     private bool _nodesBusy;
+    private DateTime _lastQuotaAttempt = DateTime.MinValue;
+    private bool _quotaBusy;
     private bool _httpVerified; // A listening SOCKS socket is not proof of internet access.
 
     private static readonly Brush Good = Brush("#4ADEB5");
@@ -403,6 +405,9 @@ public partial class MainWindow : Window
                 await CheckLatencyAsync();
             if (ProxyOwnedByCore() && (DateTime.UtcNow - _lastNodesRefresh).TotalSeconds > 30)
                 await ReloadServersAsync(quiet:true);
+            if (_httpVerified && _activeSubscription?.IsRemote == true &&
+                (DateTime.UtcNow - _lastQuotaAttempt).TotalMinutes > 10)
+                await RefreshSubscriptionAsync(_activeSubscription);
         }
         finally { _checking = false; }
     }
@@ -617,9 +622,19 @@ public partial class MainWindow : Window
 
     private async void RefreshSub_Click(object sender, RoutedEventArgs e) => await RefreshSubscriptionAsync();
 
-    private async Task RefreshSubscriptionAsync()
+    private async Task RefreshSubscriptionAsync(SubscriptionItem? chosen = null)
     {
-        if (SubscriptionList.SelectedItem is not SubscriptionItem selected) { SetMessage("Select a subscription."); return; }
+        if (_quotaBusy) return;
+        SubscriptionItem? selected = chosen ?? SubscriptionList.SelectedItem as SubscriptionItem;
+        if (selected is null) { SetMessage("Select a subscription."); return; }
+        _quotaBusy = true;
+        _lastQuotaAttempt = DateTime.UtcNow;
+        try { await FetchSubscriptionMetadataAsync(selected); }
+        finally { _quotaBusy = false; }
+    }
+
+    private async Task FetchSubscriptionMetadataAsync(SubscriptionItem selected)
+    {
         if (!selected.IsRemote) { SetMessage("Local profile: usage is only available if inline subscription-userinfo is provided."); return; }
         if (!ProxyOwnedByCore()) { SetMessage("Connect Hiddify first. Quota lookup never uses a direct connection."); return; }
         try

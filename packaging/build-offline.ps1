@@ -19,6 +19,10 @@ Write-Host "Download official Firefox..."
 $firefoxInstaller = Join-Path $download 'FirefoxSetup.exe'
 Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US' -OutFile $firefoxInstaller -MaximumRedirection 10
 if ((Get-Item $firefoxInstaller).Length -lt 20000000) {throw 'Firefox installer download is unexpectedly small'}
+$mozillaInstallerSign = Get-AuthenticodeSignature -LiteralPath $firefoxInstaller
+if ($mozillaInstallerSign.Status -ne 'Valid') {
+ throw "Official Firefox installer has an invalid Authenticode signature: $($mozillaInstallerSign.Status)"
+}
 $extract = Join-Path $download 'firefox-unpacked'
 New-Item -ItemType Directory -Force $extract | Out-Null
 $sevenZip='C:\Program Files\7-Zip\7z.exe'
@@ -31,6 +35,10 @@ $ff = Get-ChildItem $extract -Recurse -Filter firefox.exe -File |
 if (!$ff) {throw 'No Firefox executable extracted from official installer'}
 Copy-Item (Join-Path $ff.Directory.FullName '*') $firefox -Recurse -Force
 if (!(Test-Path (Join-Path $firefox 'firefox.exe'))) {throw 'Firefox staging failed'}
+$firefoxSign = Get-AuthenticodeSignature -LiteralPath (Join-Path $firefox 'firefox.exe')
+if ($firefoxSign.Status -ne 'Valid') {
+ throw "Firefox binary signature is not trusted: $($firefoxSign.Status)"
+}
 New-Item -ItemType Directory -Force -Path (Join-Path $firefox 'distribution') | Out-Null
 Copy-Item 'firefox/distribution/policies.json' (Join-Path $firefox 'distribution/policies.json') -Force
 
@@ -71,6 +79,32 @@ No system Firefox installation is modified. Do not move the app after enabling W
 until its guard setup is updated for the new executable path.
 '@ | Set-Content -Path (Join-Path $root 'START-HERE.txt') -Encoding utf8
 
+# Reproducible checksum & signature report lives alongside the application.
+$report = [ordered]@{
+  project = 'FHG Browser'
+  stage = 'experimental-alpha-not-security-certified'
+  git_commit = $env:GITHUB_SHA
+  generated_utc = [DateTime]::UtcNow.ToString('o')
+  source = @{
+    firefox = 'https://download.mozilla.org/?product=firefox-latest&os=win64&lang=en-US'
+    hiddify = 'https://github.com/hiddify/hiddify-app/releases/download/v4.1.1/Hiddify-Windows-Portable-x64.zip'
+  }
+  files = @()
+}
+foreach($relative in @('FHG.exe','FHGGuard.exe','Firefox/firefox.exe','Core/HiddifyCli.exe','Core/hiddify-core.dll')) {
+ $path=Join-Path $root $relative
+ if(!(Test-Path $path)) { throw "Required binary missing: $relative" }
+ $entry=Get-Item $path
+ $sig=Get-AuthenticodeSignature -LiteralPath $entry.FullName
+ $report.files += [ordered]@{
+   path = $relative
+   bytes = [long]$entry.Length
+   sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+   authenticode_status = [string]$sig.Status
+   authenticode_signer = if($sig.SignerCertificate) {$sig.SignerCertificate.Subject} else {''}
+ }
+}
+($report | ConvertTo-Json -Depth 6) | Set-Content -LiteralPath (Join-Path $root 'BUILD-SECURITY.json') -Encoding utf8
 Write-Host 'Stage files:' (Get-ChildItem $root -Recurse -File | Measure-Object).Count
 $target=Join-Path (Get-Location) $Output
 if (Test-Path $target) {Remove-Item $target -Force}

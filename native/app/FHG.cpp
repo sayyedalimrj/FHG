@@ -190,6 +190,7 @@ static void browseConfig(){
   if(GetOpenFileNameW(&of)){configFile=name;SetWindowTextW(cfgBox,name);persistConfig();}
 }
 static void openBrowser(){
+  if(foreignProxyPort()) { alert(L"Port 12334 belongs to another process. Refusing to open the protected browser."); return; }
   if(!setupGuard()){alert(L"Network guard has not passed verification. Browser was not started.");return;}
   if(!fs::exists(firefoxExe)){alert(L"Firefox\\firefox.exe is missing.");return;}
   // The profile is exclusive to FHG; -no-remote prevents attaching to normal Firefox.

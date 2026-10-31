@@ -2,6 +2,8 @@
 // Local UI + supervised HiddifyCli + isolated Firefox. Never change global proxy.
 #define UNICODE
 #define _UNICODE
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <shellapi.h>
 #include <commdlg.h>

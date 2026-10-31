@@ -1,0 +1,25 @@
+{
+  "policies": {
+    "Proxy": {
+      "Mode": "manual",
+      "Locked": true,
+      "SOCKSProxy": "127.0.0.1:12334",
+      "SOCKSVersion": 5,
+      "UseProxyForDNS": true,
+      "Passthrough": ""
+    },
+    "DisableTelemetry": true,
+    "DisableFirefoxStudies": true,
+    "DisableDefaultBrowserAgent": true,
+    "Preferences": {
+      "media.peerconnection.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "network.trr.mode": {
+        "Value": 5,
+        "Status": "locked"
+      }
+    }
+  }
+}

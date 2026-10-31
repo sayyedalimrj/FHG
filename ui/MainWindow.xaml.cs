@@ -454,7 +454,7 @@ public partial class MainWindow : Window
         if (_guardReady) return true;
         var result = MessageBox.Show(this,
             "FHG must install isolated Windows network filtering for this Firefox folder before it can open.\n\nOnly the FHG browser executables are targeted; ordinary Firefox is unaffected.\n\nWindows will ask for Administrator access once. Continue?",
-            "Activate FHG network guard", MessageBoxButton.YesNo, MessageBoxImage.Shield);
+            "Activate FHG network guard", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result != MessageBoxResult.Yes) { SetMessage("Guard not active. Browser launch blocked."); return false; }
         try
         {

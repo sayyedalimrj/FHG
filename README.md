@@ -6,7 +6,9 @@ FHG combines an unmodified, current official Firefox distribution, a self-contai
 
 ## Download / build
 
+- **[Download FHG v0.2.0-alpha.1 (Windows x64) from GitHub Releases](https://github.com/sayyedalimrj/FHG/releases/tag/v0.2.0-alpha.1)** — experimental, unsigned, not certified leak-free.
 - [Windows controller CI and full offline build](https://github.com/sayyedalimrj/FHG/actions/workflows/windows-controller.yml).
+- [Security review (2026-10-31)](docs/SECURITY-REVIEW-2026-10-31.md) — verified controls and outstanding risks.
 - The artifact **FHG-experimental-OFFLINE-browser-windows-x64** contains a ZIP; extract that ZIP to a permanent writable folder.
 - Launch **FHG.exe** (not firefox.exe). A per-user Desktop shortcut is created on first launch. No separate Hiddify UI or CMD window is needed.
 - Paste a **Hiddify share link, subscription URL or configuration text**, or import a JSON/YAML/TXT file; select *Connect*, then *Open secure browser*. The UI shows proxy status, guard state and HTTPS latency measured through SOCKS5. The first browser start asks for Administrator permission only if the WFP guard rules are missing.

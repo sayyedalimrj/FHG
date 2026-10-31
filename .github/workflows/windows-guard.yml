@@ -28,6 +28,7 @@ jobs:
           if (!(Test-Path $exe)) { throw "No EXE" }
           & $exe
           if ($LASTEXITCODE -ne 2) { throw "Expected usage error code 2" }
+          exit 0
       - name: Upload experimental binary
         uses: actions/upload-artifact@v4
         with:

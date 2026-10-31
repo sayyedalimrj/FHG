@@ -23,6 +23,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+      - name: Generate original FHG multi-resolution icon
+        run: python native/app/resources/generate_icon.py
       - name: Configure controller
         run: cmake -S native/app -B build-app -G "Visual Studio 17 2022" -A x64
       - name: Compile controller
@@ -31,6 +33,17 @@ jobs:
         run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
       - name: Compile guard
         run: cmake --build build-guard --config Release --parallel
+      - name: Publisher signing (only with valid repository code-signing certificate)
+        shell: pwsh
+        env:
+          FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
+          FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
+        run: |
+          ./packaging/sign-publisher.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+      - name: Verify embedded FHG icon and Authenticode statuses
+        shell: pwsh
+        run: |
+          ./native/app/resources/check-icon-signature.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
       - name: Package native components
         shell: pwsh
         run: |

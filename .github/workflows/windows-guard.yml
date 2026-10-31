@@ -1,0 +1,36 @@
+name: Windows native guard build (compile only)
+on:
+  push:
+    paths:
+      - 'native/guard/**'
+      - '.github/workflows/windows-guard.yml'
+  pull_request:
+    paths:
+      - 'native/guard/**'
+      - '.github/workflows/windows-guard.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S native/guard -B build -G "Visual Studio 17 2022" -A x64
+      - name: Compile native guard
+        run: cmake --build build --config Release --parallel
+      - name: Syntax/CLI smoke test
+        shell: pwsh
+        run: |
+          $exe = "build/Release/FHGGuard.exe"
+          if (!(Test-Path $exe)) { throw "No EXE" }
+          & $exe
+          if ($LASTEXITCODE -ne 2) { throw "Expected usage error code 2" }
+      - name: Upload experimental binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHGGuard-EXPERIMENTAL-windows-x64
+          path: build/Release/FHGGuard.exe
+          if-no-files-found: error

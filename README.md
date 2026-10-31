@@ -20,6 +20,8 @@ Start with a maintained upstream **Firefox release**, a separate FHG distributio
 - [Transport architecture](docs/ARCHITECTURE.md) — isolated Hiddify Core process and Windows WFP guard.
 - [Firefox policy](firefox/distribution/policies.json) — locked SOCKS5, remote DNS, WebRTC disabled.
 - [Policy-check CI](.github/workflows/policy-check.yml) — validates static policy **only**.
+- [Native WFP guard prototype](native/guard/FHGGuard.cpp) and [MSVC build workflow](.github/workflows/windows-guard.yml) — builds an experimental executable; no runtime leakage test yet.
+- [Lightweight MVP scope](docs/LEAN-MVP.md) — removes unnecessary product UI, not browser security protections.
 
 ## Core invariants
 
@@ -31,6 +33,6 @@ Start with a maintained upstream **Firefox release**, a separate FHG distributio
 
 ## Implementation status
 
-This repo does **not** yet contain a built Firefox fork, integrated Hiddify Core, working WFP guard, validated installer/updater, or runtime leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
+This repo contains an **experimental native WFP guard source** but does **not** yet contain a built Firefox fork, integrated Hiddify Core, runtime-validated WFP guard, validated installer/updater, or runtime leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
 
 Upstream: [Firefox](https://github.com/mozilla-firefox/firefox) | [Hiddify Core](https://github.com/hiddify/hiddify-core)

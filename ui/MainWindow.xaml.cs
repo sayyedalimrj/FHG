@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     private SubscriptionItem? _activeSubscription;
     private ClashControl? _clash;
     private string _clashSecret = "";
-    private const int ClashPort = 6756;
+    private readonly int _clashPort = System.Security.Cryptography.RandomNumberGenerator.GetInt32(30000, 60000);
     private string _selector = "";
     private DateTime _lastNodesRefresh = DateTime.MinValue;
     private bool _nodesBusy;
@@ -203,6 +203,11 @@ public partial class MainWindow : Window
             SetMessage("Port 12334 is already owned or exposed by an untrusted listener. Refusing to connect.");
             return;
         }
+        if (ProxyListenerPid(_clashPort) is not null)
+        {
+            SetMessage("The local controller port is already in use. Restart FHG to choose another port.");
+            return;
+        }
         string input = ConfigInput.Text.Trim();
         string source;
         try
@@ -226,7 +231,7 @@ public partial class MainWindow : Window
                      _activeSubscription.LocalPath ?? throw new InvalidDataException("Missing local profile path");
             _clashSecret = ClashControl.NewSecret();
             _clash?.Dispose();
-            _clash = new ClashControl(ClashPort, _clashSecret);
+            _clash = new ClashControl(_clashPort, _clashSecret);
         }
         catch (Exception ex)
         {
@@ -252,7 +257,7 @@ public partial class MainWindow : Window
             start.ArgumentList.Add("--log-level");
             start.ArgumentList.Add("warn");
             start.ArgumentList.Add("--web-port");
-            start.ArgumentList.Add(ClashPort.ToString());
+            start.ArgumentList.Add(_clashPort.ToString());
             start.ArgumentList.Add("--web-secret");
             start.ArgumentList.Add(_clashSecret);
             // Authenticated Clash API is consumed only on 127.0.0.1 by this UI.
@@ -324,7 +329,7 @@ public partial class MainWindow : Window
     [DllImport("iphlpapi.dll", SetLastError = true)]
     private static extern uint GetExtendedTcpTable(IntPtr table, ref uint size, bool order, int family, int tableClass, uint reserved);
 
-    private static uint? ProxyListenerPid()
+    private static uint? ProxyListenerPid(int desiredPort = ProxyPort)
     {
         uint size = 0;
         const int AF_INET = 2;
@@ -343,7 +348,7 @@ public partial class MainWindow : Window
                 uint pid = unchecked((uint)Marshal.ReadInt32(buffer, offset + 20));
                 // Only an EXACT loopback bind is trusted. A wildcard listener on
                 // 0.0.0.0 may expose the SOCKS endpoint to the local network.
-                if (ConvertPort(port) == ProxyPort)
+                if (ConvertPort(port) == desiredPort)
                 {
                     if (ip == 0) return uint.MaxValue; // wildcard: fail closed, even if Hiddify owns it
                     if (ip == 0x0100007F) return pid; // 127.0.0.1, little-endian Windows
@@ -637,7 +642,7 @@ public partial class MainWindow : Window
     private async void ReloadNodes_Click(object sender, RoutedEventArgs e) => await ReloadServersAsync();
     private async Task ReloadServersAsync(bool quiet = false)
     {
-        if (_nodesBusy || !ProxyOwnedByCore() || _clash is null)
+        if (_nodesBusy || !ProxyOwnedByCore() || _clash is null || ProxyListenerPid(_clashPort) != (uint)_core!.Id)
         {
             if (!quiet) SetMessage("Connect Hiddify first to load available servers.");
             return;
@@ -663,7 +668,7 @@ public partial class MainWindow : Window
 
     private async void TestNode_Click(object sender, RoutedEventArgs e)
     {
-        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore())
+        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore() || ProxyListenerPid(_clashPort) != (uint)_core!.Id)
         {
             SetMessage("Select a node while Hiddify is connected."); return;
         }
@@ -681,7 +686,7 @@ public partial class MainWindow : Window
 
     private async void SelectNode_Click(object sender, RoutedEventArgs e)
     {
-        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore())
+        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore() || ProxyListenerPid(_clashPort) != (uint)_core!.Id)
         {
             SetMessage("Select a node while Hiddify is connected."); return;
         }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FHGNative LANGUAGES CXX)
+project(FHGNative LANGUAGES CXX RC)
 if(NOT WIN32)
   message(FATAL_ERROR "FHG native controller is Windows-only")
 endif()

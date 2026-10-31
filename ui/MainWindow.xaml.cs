@@ -41,6 +41,7 @@ public partial class MainWindow : Window
     private string _selector = "";
     private DateTime _lastNodesRefresh = DateTime.MinValue;
     private bool _nodesBusy;
+    private bool _restoredServer;
     private DateTime _lastQuotaAttempt = DateTime.MinValue;
     private bool _quotaBusy;
     private bool _httpVerified; // A listening SOCKS socket is not proof of internet access.
@@ -231,6 +232,7 @@ public partial class MainWindow : Window
             }
             source = _activeSubscription.IsRemote ? _activeSubscription.Source :
                      _activeSubscription.LocalPath ?? throw new InvalidDataException("Missing local profile path");
+            _restoredServer = false;
             _clashSecret = ClashControl.NewSecret();
             _clash?.Dispose();
             _clash = new ClashControl(_clashPort, _clashSecret);
@@ -667,6 +669,19 @@ public partial class MainWindow : Window
         try
         {
             var info = await _clash.GetServersAsync();
+            if (!_restoredServer && _activeSubscription?.PreferredServer is string preferred &&
+                _activeSubscription.PreferredGroup == info.Selector &&
+                info.Servers.Any(x => x.Name == preferred))
+            {
+                // Never restore a DIRECT/unknown outbound; only nodes shown in our safe list.
+                try
+                {
+                    await _clash.SelectNodeAsync(info.Selector, preferred);
+                    info = await _clash.GetServersAsync();
+                }
+                catch { /* keep automatic Core selection if provider changed */ }
+            }
+            _restoredServer = true;
             _selector = info.Selector;
             ServerList.ItemsSource = info.Servers;
             ServersHint.Text = $"{info.Servers.Length} servers from Hiddify Core" +
@@ -708,6 +723,12 @@ public partial class MainWindow : Window
         try
         {
             await _clash.SelectNodeAsync(_selector, node.Name);
+            if (_activeSubscription is not null)
+            {
+                _activeSubscription.PreferredServer = node.Name;
+                _activeSubscription.PreferredGroup = _selector;
+                _subscriptions.Save();
+            }
             await ReloadServersAsync();
             SetMessage($"Selected server: {node.Name}");
         }

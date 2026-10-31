@@ -10,6 +10,9 @@ $exe=@((Resolve-Path $Controller).Path,(Resolve-Path $Guard).Path)
 # If absent, leave EXEs unsigned and clearly say so in the release metadata.
 $b64=$env:FHG_SIGNING_PFX_BASE64
 $pwd=$env:FHG_SIGNING_PFX_PASSWORD
+if ([string]::IsNullOrWhiteSpace($b64) -xor [string]::IsNullOrEmpty($pwd)) {
+ throw 'Code signing is only partially configured: set both certificate and password'
+}
 if ([string]::IsNullOrWhiteSpace($b64) -or [string]::IsNullOrEmpty($pwd)) {
  Write-Host 'No publisher signing certificate in Actions secrets: EXEs remain UNSIGNED.'
  return

@@ -20,7 +20,7 @@ Start with a maintained upstream **Firefox release**, a separate FHG distributio
 - [Transport architecture](docs/ARCHITECTURE.md) — isolated Hiddify Core process and Windows WFP guard.
 - [Firefox policy](firefox/distribution/policies.json) — locked SOCKS5, remote DNS, WebRTC disabled.
 - [Policy-check CI](.github/workflows/policy-check.yml) — validates static policy **only**.
-- [Native WFP guard prototype](native/guard/FHGGuard.cpp) and [MSVC build workflow](.github/workflows/windows-guard.yml) — builds an experimental executable; no runtime leakage test yet.
+- [Native WFP guard prototype](native/guard/FHGGuard.cpp) and [MSVC build workflow](.github/workflows/windows-guard.yml) — builds an experimental executable and runs a localhost socket isolation test; full Firefox/Hiddify leak testing remains undone.
 - [Lightweight MVP scope](docs/LEAN-MVP.md) — removes unnecessary product UI, not browser security protections.
 
 ## Core invariants
@@ -33,6 +33,10 @@ Start with a maintained upstream **Firefox release**, a separate FHG distributio
 
 ## Implementation status
 
-This repo contains an **experimental native WFP guard source** but does **not** yet contain a built Firefox fork, integrated Hiddify Core, runtime-validated WFP guard, validated installer/updater, or runtime leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
+This repo contains an **experimental native WFP guard source** but does **not** yet contain a built Firefox fork, integrated Hiddify Core, runtime-validated WFP guard, validated installer/updater, or real browser + Hiddify leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
 
 Upstream: [Firefox](https://github.com/mozilla-firefox/firefox) | [Hiddify Core](https://github.com/hiddify/hiddify-core)
+
+## Verified engineering milestone
+
+[Windows localhost WFP integration run](https://github.com/sayyedalimrj/FHG/actions/runs/41166109092): **passed** on Windows Server 2022. A synthetic FHG-scoped socket client could reach TCP `127.0.0.1:12334`, could not connect to `127.0.0.1:22334` (WSA 10013), an unrelated executable remained able to connect, and a down proxy did not create a new path. This is a **limited test**, not a demonstrated absence of leaks in Firefox or Hiddify. No integrated app release has been produced yet.

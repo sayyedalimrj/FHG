@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - "native/app/**"
+      - "ui/**"
       - "native/guard/**"
       - "firefox/distribution/**"
       - ".github/workflows/windows-controller.yml"
@@ -26,15 +27,17 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
       - name: Generate original FHG multi-resolution icon
-        run: python native/app/resources/generate_icon.py
-      - name: Generate original FHG application icon
+        run: python native/app/resources/generate_icon.py ui/Assets/FHG.ico
+      - name: Publish self-contained WPF interface
         shell: pwsh
-        run: ./native/app/assets/generate-icon.ps1
-      - name: Configure controller
-        run: cmake -S native/app -B build-app -G "Visual Studio 17 2022" -A x64
-      - name: Compile controller
-        run: cmake --build build-app --config Release --parallel
+        run: |
+          dotnet publish ui/FHG.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-ui
+          if ($LASTEXITCODE -ne 0) { throw 'WPF publish failed' }
+          if (!(Test-Path 'publish-ui/FHG.exe')) { throw 'FHG.exe missing' }
       - name: Configure guard
         run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
       - name: Compile guard
@@ -45,15 +48,15 @@ jobs:
           FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
           FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
         run: |
-          ./packaging/sign-publisher.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+          ./packaging/sign-publisher.ps1 -Controller publish-ui/FHG.exe -Guard build-guard/Release/FHGGuard.exe
       - name: Verify embedded FHG icon and Authenticode statuses
         shell: pwsh
         run: |
-          ./native/app/resources/check-icon-signature.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+          ./native/app/resources/check-icon-signature.ps1 -Controller publish-ui/FHG.exe -Guard build-guard/Release/FHGGuard.exe
       - name: Audit app icon and Authenticode status
         shell: pwsh
         run: |
-          $exe = "build-app/Release/FHG.exe"
+          $exe = "publish-ui/FHG.exe"
           $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe).Path)
           $text = [Text.Encoding]::Unicode.GetString($bytes)
           if (!$text.Contains("FHG Secure Browser Experimental")) { throw "Missing embedded version resource" }
@@ -63,17 +66,17 @@ jobs:
           else { Write-Warning "FHG is UNSIGNED. A trusted Code Signing certificate is required for public signing." }
           Get-FileHash $exe -Algorithm SHA256 | Format-List
           Get-FileHash "build-guard/Release/FHGGuard.exe" -Algorithm SHA256 | Format-List
-      - name: Package native components
+      - name: Package UI and guard components
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item build-app/Release/FHG.exe dist/FHG.exe
+          Copy-Item publish-ui/FHG.exe dist/FHG.exe
           Copy-Item build-guard/Release/FHGGuard.exe dist/FHGGuard.exe
           Copy-Item firefox/distribution/policies.json dist/policies.json
       - name: Assemble offline experimental browser
         shell: pwsh
         run: |
-          ./packaging/build-offline.ps1 -Controller build-app/Release/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+          ./packaging/build-offline.ps1 -Controller publish-ui/FHG.exe -Guard build-guard/Release/FHGGuard.exe
       - name: Create SHA-256 download checksum
         shell: pwsh
         run: |

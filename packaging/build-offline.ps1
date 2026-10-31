@@ -46,6 +46,14 @@ Write-Host "Download Hiddify 4.1.1 portable release..."
 $hid = Join-Path $download 'Hiddify-Windows-Portable-x64.zip'
 Invoke-WebRequest -Uri 'https://github.com/hiddify/hiddify-app/releases/download/v4.1.1/Hiddify-Windows-Portable-x64.zip' -OutFile $hid -MaximumRedirection 10
 if ((Get-Item $hid).Length -lt 10000000) {throw 'Hiddify download unexpectedly small'}
+# Pinned digest of the official hiddify/hiddify-app v4.1.1 release asset.
+# Source: https://github.com/hiddify/hiddify-app/releases/tag/v4.1.1
+$expectedHiddifySha256='5099b3df2d21f1bb0c1cbf28dfa9fc6fa817e7eea77a0efe4daf93f571aae418'
+$actualHiddifySha256=(Get-FileHash -LiteralPath $hid -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualHiddifySha256 -ne $expectedHiddifySha256) {
+    throw "Hiddify release SHA-256 mismatch. Expected $expectedHiddifySha256, got $actualHiddifySha256. Refusing to build."
+}
+Write-Host "PASS: Hiddify v4.1.1 archive SHA-256 matches official release."
 $hidOut=Join-Path $download 'hiddify-unpacked'
 New-Item -ItemType Directory -Force $hidOut | Out-Null
 # The upstream asset can be a TAR archive even though the extension says .zip.

@@ -87,7 +87,16 @@
 
     <Grid Grid.Row="2">
       <Grid.ColumnDefinitions><ColumnDefinition Width="1.25*"/><ColumnDefinition Width="18"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-      <Border Grid.Column="0" Style="{StaticResource Card}">
+      <Grid Grid.Column="0">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="11"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid Grid.Row="0">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Button Grid.Column="0" x:Name="AddTab" Content="Import" Style="{StaticResource PrimaryButton}" Padding="10,9" Tag="add" Click="Tab_Click"/>
+          <Button Grid.Column="2" x:Name="SubsTab" Content="Subscriptions" Style="{StaticResource SecondaryButton}" Padding="10,9" Tag="subs" Click="Tab_Click"/>
+          <Button Grid.Column="4" x:Name="NodesTab" Content="Servers" Style="{StaticResource SecondaryButton}" Padding="10,9" Tag="nodes" Click="Tab_Click"/>
+        </Grid>
+        <Grid Grid.Row="2">
+          <Border x:Name="AddPanel" Style="{StaticResource Card}">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -134,6 +143,63 @@
           </Grid>
         </Grid>
       </Border>
+
+
+          <Border x:Name="SubscriptionsPanel" Style="{StaticResource Card}" Visibility="Collapsed">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="11"/><RowDefinition Height="*"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/><RowDefinition Height="15"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <StackPanel Grid.Row="0">
+                <TextBlock Text="My subscriptions" FontSize="20" FontWeight="Bold"/>
+                <TextBlock Text="Choose a profile and review your traffic balance." Style="{StaticResource FieldLabel}" TextWrapping="Wrap" Margin="0,5,0,0"/>
+              </StackPanel>
+              <ListBox Grid.Row="2" x:Name="SubscriptionList" SelectionChanged="SubscriptionList_SelectionChanged"
+                       Background="#0C1528" Foreground="#EFF6FF" BorderBrush="#3C4D69" BorderThickness="1" FontSize="14">
+                <ListBox.ItemTemplate><DataTemplate><StackPanel Margin="8,7,8,7"><TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/><TextBlock Text="{Binding Usage}" FontSize="11" Foreground="#9DB2D1" Margin="0,4,0,0"/></StackPanel></DataTemplate></ListBox.ItemTemplate>
+              </ListBox>
+              <Border Grid.Row="4" Background="#0C1528" CornerRadius="11" Padding="14">
+                <StackPanel>
+                  <TextBlock x:Name="SelectedSubName" Text="Select a subscription" FontWeight="SemiBold" FontSize="16"/>
+                  <TextBlock Text="TRAFFIC USED" Style="{StaticResource FieldLabel}" Margin="0,10,0,0"/>
+                  <TextBlock x:Name="SubUsage" Text="—" FontSize="15"/>
+                  <ProgressBar x:Name="SubProgress" Height="7" Minimum="0" Maximum="100" Value="0" Margin="0,8,0,3" Foreground="#52E5C4"/>
+                  <Grid Margin="0,9,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0"><TextBlock Text="REMAINING" Style="{StaticResource FieldLabel}"/><TextBlock x:Name="SubRemaining" Text="—" FontSize="13" FontWeight="SemiBold" Margin="0,4,0,0"/></StackPanel>
+                    <StackPanel Grid.Column="1"><TextBlock Text="EXPIRY" Style="{StaticResource FieldLabel}"/><TextBlock x:Name="SubExpiry" Text="—" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0"/></StackPanel>
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <Grid Grid.Row="6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Activate" Style="{StaticResource PrimaryButton}" Padding="9,10" Click="ActivateSub_Click"/>
+                <Button Grid.Column="2" Content="Refresh" Style="{StaticResource SecondaryButton}" Padding="9,10" Click="RefreshSub_Click"/>
+                <Button Grid.Column="4" Content="Remove" Style="{StaticResource DangerButton}" Padding="9,10" Click="RemoveSub_Click"/>
+              </Grid>
+            </Grid>
+          </Border>
+
+          <Border x:Name="ServersPanel" Style="{StaticResource Card}" Visibility="Collapsed">
+            <Grid>
+              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="10"/><RowDefinition Height="Auto"/><RowDefinition Height="12"/><RowDefinition Height="*"/><RowDefinition Height="12"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+              <TextBlock Grid.Row="0" Text="Subscription servers" FontSize="20" FontWeight="Bold"/>
+              <TextBlock Grid.Row="2" x:Name="ServersHint" Text="Connect a subscription to load nodes from Hiddify Core." Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+              <ListBox Grid.Row="4" x:Name="ServerList" Background="#0C1528" Foreground="#EFF6FF"
+                       BorderBrush="#3C4D69" BorderThickness="1">
+                <ListBox.ItemTemplate>
+                  <DataTemplate><Grid Margin="8,8,8,8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/><TextBlock Text="{Binding Type}" Style="{StaticResource FieldLabel}" Margin="0,4,0,0"/></StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding Latency}" Foreground="#4ADEB5" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                  </Grid></DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Grid Grid.Row="6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/><ColumnDefinition Width="8"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Reload" Style="{StaticResource SecondaryButton}" Padding="8,10" Click="ReloadNodes_Click"/>
+                <Button Grid.Column="2" Content="Test ping" Style="{StaticResource SecondaryButton}" Padding="8,10" Click="TestNode_Click"/>
+                <Button Grid.Column="4" Content="Select" Style="{StaticResource PrimaryButton}" Padding="8,10" Click="SelectNode_Click"/>
+              </Grid>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
 
       <Grid Grid.Column="2">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="14"/><RowDefinition Height="*"/></Grid.RowDefinitions>

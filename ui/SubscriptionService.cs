@@ -118,7 +118,7 @@ public sealed class SubscriptionStore
         var item = new SubscriptionItem
         {
             Source = url ? text : "",
-            Name = url ? "Subscription " + (Items.Count + 1) : "Local profile " + (Items.Count + 1),
+            Name = url ? "Subscription · " + uri!.Host : "Local profile " + (Items.Count + 1),
         };
         if (!url)
         {

@@ -20,5 +20,4 @@
     <AssemblyProduct>FHG Secure Browser</AssemblyProduct>
     <AssemblyCompany>FHG Community</AssemblyCompany>
   </PropertyGroup>
-  <ItemGroup><None Include="Assets\FHG.ico" CopyToOutputDirectory="Never" /></ItemGroup>
 </Project>

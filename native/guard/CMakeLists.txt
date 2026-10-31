@@ -11,3 +11,8 @@ if(MSVC)
   target_compile_options(FHGGuard PRIVATE /W4 /EHsc)
 endif()
 set_target_properties(FHGGuard PROPERTIES OUTPUT_NAME "FHGGuard")
+
+# Test-only socket client, never shipped with the product.
+add_executable(FHGProbe EXCLUDE_FROM_ALL NetworkProbe.cpp)
+target_compile_features(FHGProbe PRIVATE cxx_std_17)
+target_link_libraries(FHGProbe PRIVATE Ws2_32)

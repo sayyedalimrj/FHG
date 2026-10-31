@@ -20,6 +20,7 @@
         "Value": 5,
         "Status": "locked"
       }
-    }
+    },
+    "DisableAppUpdate": true
   }
 }

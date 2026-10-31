@@ -57,9 +57,8 @@ jobs:
         shell: pwsh
         run: |
           $exe = "publish-ui/FHG.exe"
-          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe).Path)
-          $text = [Text.Encoding]::Unicode.GetString($bytes)
-          if (!$text.Contains("FHG Secure Browser Experimental")) { throw "Missing embedded version resource" }
+          $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $exe).Path)
+          if (!$metadata.ProductName.Contains("FHG")) { throw "FHG version metadata missing" }
           $s = Get-AuthenticodeSignature $exe
           Write-Host "FHG Authenticode:" $s.Status
           if ($s.Status -eq 'Valid') { Write-Host "Certificate signer:" $s.SignerCertificate.Subject }

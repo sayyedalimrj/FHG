@@ -55,6 +55,7 @@ static void createShortcut(const std::wstring& exePath){
         link->SetPath(exePath.c_str());
         link->SetWorkingDirectory(root.c_str());
         link->SetDescription(L"FHG: isolated Firefox and Hiddify");
+        link->SetIconLocation(exePath.c_str(),0);
         IPersistFile* persist=nullptr;
         if(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&persist)))){
           persist->Save(shortcut.c_str(),TRUE);
@@ -259,14 +260,15 @@ static LRESULT CALLBACK windowProc(HWND h,UINT msg,WPARAM w,LPARAM l){
 int WINAPI wWinMain(HINSTANCE ins,HINSTANCE,LPWSTR,int show){
   wchar_t exe[MAX_PATH]={};GetModuleFileNameW(nullptr,exe,MAX_PATH);
   root=fs::path(exe).parent_path();
-  createShortcut(exe);
   browserDir=root/L"Firefox"; firefoxExe=browserDir/L"firefox.exe";
   coreExe=root/L"Core"/L"HiddifyCli.exe"; guardExe=root/L"FHGGuard.exe";
   stateDir=root/L"Data"; profileDir=stateDir/L"FirefoxProfile";
   restoreConfig();
+  createShortcut(exe);
   WNDCLASSEXW wc{};wc.cbSize=sizeof(wc);wc.hInstance=ins;
   wc.lpszClassName=cls;wc.lpfnWndProc=windowProc;
-  wc.hIcon=LoadIconW(nullptr,IDI_APPLICATION);
+  wc.hIcon=LoadIconW(ins,MAKEINTRESOURCEW(101));
+  wc.hIconSm=LoadIconW(ins,MAKEINTRESOURCEW(101));
   wc.hCursor=LoadCursorW(nullptr,IDC_ARROW);
   wc.hbrBackground=(HBRUSH)(COLOR_WINDOW+1);
   if(!RegisterClassExW(&wc))return 2;

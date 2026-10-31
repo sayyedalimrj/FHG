@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FHG</AssemblyName>
     <RootNamespace>FHG.UI</RootNamespace>
-    <Version>0.2.0-alpha</Version>
+    <Version>0.3.0-alpha.1</Version>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>

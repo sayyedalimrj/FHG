@@ -1,23 +1,36 @@
-# FHG — secure Firefox + Hiddify browser project
+# FHG — Firefox + Hiddify, isolated browser networking
 
-**Status: architecture and Firefox policy scaffold committed; no integrated browser binary exists yet.**
+**Project stage: design and browser policy scaffold; no complete Windows browser binary or verified egress guard yet.**
 
-Goal: create a Windows browser based on Firefox with separately isolated Hiddify Core networking and a fail-closed network boundary. The browser should only connect over TCP to a local SOCKS5 listener, currently `127.0.0.1:12334`. Hiddify Core handles remote network traffic in its own process.
+## Goal
 
-## Current files
+Deliver a **modern, fast, maintained and isolated browser** in which **every browser-originated network connection must go through Hiddify Core**. Hiddify Core runs as a separate, supervised networking process behind a loopback SOCKS5 proxy at `127.0.0.1:12334`.
 
-- [Security architecture](docs/ARCHITECTURE.md): process isolation, WFP requirements and release security tests.
-- [Firefox browser-local policy](firefox/distribution/policies.json): locked SOCKS5 proxy, proxy-side DNS, WebRTC disabled.
-- [CI policy validation](.github/workflows/policy-check.yml): static configuration assertions. **A green CI run is not a leak test.**
+**When Hiddify is disconnected or crashes, the browser stays open.** Tabs, settings, history, bookmarks and local pages keep working. New online requests fail with a connection/proxy error and **never fall back to DIRECT**. Once Hiddify reconnects, normal browsing can resume without restarting the browser.
 
-## Implementation still required
+The protection is *network fail-closed*, **not** *application shutdown*.
 
-1. Build and test a Windows Filtering Platform guard with browser-executable-scoped allow-only-local-SOCKS enforcement and verified persistent fail-closed behavior. Include install/uninstall and policy checks.
-2. Integrate Hiddify Core in a supervised, separate subprocess with authenticated control IPC and fail-safe startup/shutdown.
-3. Build a Firefox fork and user interface for connection management, keeping browser profile and executable isolation from users' existing Firefox installations.
-4. Run real Windows 10/11 egress capture, crash/reconnect, direct launch, IPv6/DNS/WebRTC, port hijack and cross-application impact tests.
-5. Only distribute once runtime security gates pass.
+## Browser choice
 
-Source projects: [Firefox](https://github.com/mozilla-firefox/firefox), [Hiddify Core](https://github.com/hiddify/hiddify-core).
+Start with a maintained upstream **Firefox release**, a separate FHG distribution and profile, and only the minimal patches required for native connection/status UI. Preserve a viable security-update path. Do not freeze Firefox at a known old version or fork the whole networking stack unless necessary.
 
-**Do not advertise zero leaks or a finished release at this stage.**
+## Source structure
+
+- [Requirements & acceptance criteria](docs/REQUIREMENTS.md) — user-visible behavior and security goals.
+- [Transport architecture](docs/ARCHITECTURE.md) — isolated Hiddify Core process and Windows WFP guard.
+- [Firefox policy](firefox/distribution/policies.json) — locked SOCKS5, remote DNS, WebRTC disabled.
+- [Policy-check CI](.github/workflows/policy-check.yml) — validates static policy **only**.
+
+## Core invariants
+
+1. All FHG browser executables are subject to outbound WFP protection *before they can access a network*. Only IPv4 TCP to `127.0.0.1:12334` is allowed; disallow other IPv4, all IPv6, other protocols and direct DNS.
+2. This protection targets FHG's executable paths only; **existing Firefox installations and other applications are unaffected**.
+3. The Hiddify local listener is bound to loopback and under the supervisor's control. Audit Hiddify's outbound routing to rule out unintended DIRECT destinations.
+4. A proxy outage produces an offline/error state in open tabs, **not browser termination**. No traffic must escape the FHG browser via OS proxy settings or direct sockets.
+5. Verify behavior under disconnects, port takeover, crashes, reinstalls, updates, malicious websites and IPv4/IPv6 DNS/WebRTC tests on real Windows machines before publishing no-leak claims.
+
+## Implementation status
+
+This repo does **not** yet contain a built Firefox fork, integrated Hiddify Core, working WFP guard, validated installer/updater, or runtime leak-test results. These must be implemented and verified; a policy file alone cannot satisfy the requirements.
+
+Upstream: [Firefox](https://github.com/mozilla-firefox/firefox) | [Hiddify Core](https://github.com/hiddify/hiddify-core)

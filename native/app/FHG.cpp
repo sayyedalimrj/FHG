@@ -56,6 +56,7 @@ static void createShortcut(const std::wstring& exePath){
         link->SetWorkingDirectory(root.c_str());
         link->SetDescription(L"FHG: isolated Firefox and Hiddify");
         link->SetIconLocation(exePath.c_str(),0);
+        link->SetIconLocation(exePath.c_str(),0);
         IPersistFile* persist=nullptr;
         if(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&persist)))){
           persist->Save(shortcut.c_str(),TRUE);

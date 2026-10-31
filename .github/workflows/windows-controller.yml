@@ -38,6 +38,19 @@ jobs:
           dotnet publish ui/FHG.UI.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-ui
           if ($LASTEXITCODE -ne 0) { throw 'WPF publish failed' }
           if (!(Test-Path 'publish-ui/FHG.exe')) { throw 'FHG.exe missing' }
+      - name: WPF app startup smoke test (no web traffic)
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path "publish-ui/FHG.exe").Path
+          $p = Start-Process -FilePath $exe -PassThru
+          try {
+            Start-Sleep -Seconds 6
+            $p.Refresh()
+            if ($p.HasExited) { throw "FHG WPF UI exited during startup (exit $($p.ExitCode))" }
+            Write-Host "PASS: FHG WPF main process stays running."
+          } finally {
+            if (!$p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+          }
       - name: Configure guard
         run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
       - name: Compile guard

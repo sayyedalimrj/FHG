@@ -72,3 +72,10 @@ The offline GitHub Actions artifact includes a `.sha256` checksum. On provenance
 - Desktop shortcut creation and independent Firefox profile. The offline bundle includes the self-contained runtime; no separate .NET installation required.
 - The CI code-signing stage only signs when a real publisher PFX and password are present in configured Actions secrets. Otherwise the files are **unsigned**; build provenance attestation is not a trusted Authenticode signature.
 - This UI does not imply the full network stack is leak-tested; alpha-only until full browser + Hiddify packet capture and security review.
+
+## Subscription management (v0.3 preview)
+
+The WPF UI now has **Import**, **Subscriptions**, and **Servers** tabs. Multiple profiles can be stored locally, selected and removed. Provider-supplied traffic counters and expiration are displayed without invented numbers; quota refresh happens through Hiddify's SOCKS5 proxy after a successful connection. Hiddify's password-protected Clash API supplies node names, types, delay tests and selector changes, with a randomized loopback port and ownership checks. Per-profile node preference is saved and restored when possible.
+
+These are source and CI features: real subscription providers and all supported protocols have **not yet** been end-to-end validated on user systems. A sub that omits `subscription-userinfo` will not display remaining quota. Local profile content and subscription URLs may include private tokens; data is saved in the user's local AppData directory, not committed to GitHub. The browser remains open during proxy outage; zero-leak is not certified.
+

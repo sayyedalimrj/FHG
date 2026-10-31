@@ -1,9 +1,13 @@
 # Experimental end-to-end WFP check on an ephemeral Windows runner.
 # Does not use public internet. Uses two local TCP listeners.
+param(
+  [string]$GuardPath = "",
+  [string]$ProbePath = ""
+)
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
-$guard = Join-Path $PSScriptRoot "../../build/Release/FHGGuard.exe"
-$probe = Join-Path $PSScriptRoot "../../build/Release/FHGProbe.exe"
+$guard = if($GuardPath) {$GuardPath} else {Join-Path $PSScriptRoot "../../build/Release/FHGGuard.exe"}
+$probe = if($ProbePath) {$ProbePath} else {Join-Path $PSScriptRoot "../../build/Release/FHGProbe.exe"}
 $root = Join-Path $env:RUNNER_TEMP "fhg-wfp-test"
 $bundle = Join-Path $root "FHG-Firefox"
 $outside = Join-Path $root "unrelated.exe"

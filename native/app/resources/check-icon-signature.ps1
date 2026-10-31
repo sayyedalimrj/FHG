@@ -3,28 +3,36 @@ param(
  [Parameter(Mandatory=$true)][string]$Guard
 )
 $ErrorActionPreference='Stop'
-# The icon must be embedded as RT_GROUP_ICON. A loose .ico next to an EXE is not enough.
+# Windows executable icon must be an embedded RT_GROUP_ICON, not a loose .ico.
+# The resource ID is assigned by MSVC/dotnet and is NOT necessarily 101.
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
 public static class FHGResourceCheck {
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
  public static extern IntPtr LoadLibraryEx(string file,IntPtr reserved,uint flags);
- [DllImport("kernel32.dll", SetLastError=true)]
- public static extern IntPtr FindResource(IntPtr module,IntPtr name,IntPtr type);
+ [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true,EntryPoint="EnumResourceNamesW")]
+ public static extern bool EnumResourceNames(IntPtr module,IntPtr type,EnumResNameProc callback,IntPtr data);
+ public delegate bool EnumResNameProc(IntPtr module,IntPtr type,IntPtr name,IntPtr data);
  [DllImport("kernel32.dll")]
  public static extern bool FreeLibrary(IntPtr module);
+ public static bool HasGroupIcon(string file) {
+  var m=LoadLibraryEx(file,IntPtr.Zero,2);
+  if(m==IntPtr.Zero)return false;
+  try {
+   bool found=false;
+   EnumResNameProc cb=(mod,type,name,data)=>{found=true;return false;};
+   EnumResourceNames(m,(IntPtr)14,cb,IntPtr.Zero);
+   GC.KeepAlive(cb);
+   return found;
+  } finally {FreeLibrary(m);}
+ }
 }
 '@
-$m=[FHGResourceCheck]::LoadLibraryEx((Resolve-Path $Controller).Path,[IntPtr]::Zero,2)
-if ($m -eq [IntPtr]::Zero) {throw 'Cannot map controller EXE'}
-try {
- $group=[FHGResourceCheck]::FindResource($m,[IntPtr]101,[IntPtr]14)
- if ($group -eq [IntPtr]::Zero) {throw 'FHG controller icon RT_GROUP_ICON/101 missing'}
- Write-Host 'PASS: FHG icon is embedded in FHG.exe.'
-} finally {[FHGResourceCheck]::FreeLibrary($m)|Out-Null}
-$files=@($Controller,$Guard)
-foreach ($file in $files) {
+$exe=(Resolve-Path $Controller).Path
+if(![FHGResourceCheck]::HasGroupIcon($exe)) {throw 'FHG executable lacks an embedded icon (RT_GROUP_ICON)'}
+Write-Host 'PASS: FHG application icon is embedded in the executable.'
+foreach ($file in @($Controller,$Guard)) {
  $fi=Get-Item $file
  if ($fi.Length -lt 20000) {throw "Executable too small or missing: $file"}
  $sig=Get-AuthenticodeSignature -LiteralPath $fi.FullName

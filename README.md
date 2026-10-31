@@ -27,6 +27,16 @@ HiddifyCLI -- configured proxy nodes --> external network
 
 The FHGGuard Windows Filtering Platform rules are path-scoped to FHG's Firefox executables; they do not change Windows Firewall profiles or the existing Firefox installation. Source: [native app](native/app/FHG.cpp), [WFP guard](native/guard/FHGGuard.cpp), [policy](firefox/distribution/policies.json), [bundle script](packaging/build-offline.ps1).
 
+## Code signing policy and verification
+
+**Publisher signing is pending.** FHG's native EXEs are currently unsigned, and the browser is **not** validated leak-free. A GitHub Artifact Attestation proves which public workflow produced an artifact; it does not provide Microsoft Authenticode trust or establish network privacy.
+
+Only the native `FHG.exe` and `FHGGuard.exe` built from FHG source are candidates for future SignPath Foundation signing. Upstream Firefox and Hiddify binaries retain their own publishers and are **never re-signed as FHG**. Every future public signing request must be made from a trusted, reviewed GitHub release build with explicit manual approval; release signing is **not enabled today**.
+
+The offline GitHub Actions artifact includes a `.sha256` checksum. On provenance-enabled runs, verify the exact extracted ZIP with `gh attestation verify FHG-experimental-win-x64.zip --repo sayyedalimrj/FHG` before trusting its origin.
+
+**[Code signing policy, prerequisites and pending security tests](docs/CODE-SIGNING.md).** FHG has no publicly issued code-signing certificate and no production-ready release yet.
+
 ## What is tested
 
 - Compiles both native EXEs in GitHub Actions on Windows x64.

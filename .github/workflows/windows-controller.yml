@@ -129,7 +129,7 @@ jobs:
   release:
     name: Publish FHG alpha to GitHub Releases
     needs: [build]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v0.2.0-alpha.1') }}
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v0.2.0-alpha.1') }}"
     runs-on: ubuntu-latest
     permissions:
       contents: write

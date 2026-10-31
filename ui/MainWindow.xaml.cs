@@ -623,7 +623,7 @@ public partial class MainWindow : Window
             await SubscriptionStore.RefreshRemoteMetadataAsync(selected);
             _subscriptions.Save();
             SubscriptionList_SelectionChanged(SubscriptionList, new System.Windows.Controls.SelectionChangedEventArgs(
-                System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, [], []));
+                System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, new System.Collections.ArrayList(), new System.Collections.ArrayList()));
             // Force list re-render after metadata changes.
             SubscriptionList.Items.Refresh();
             SetMessage("Subscription metadata updated. Missing quota means the provider did not report it.");

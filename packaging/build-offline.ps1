@@ -76,15 +76,35 @@ Get-ChildItem $cli.Directory.FullName -File -Filter '*.dll' | ForEach-Object {
 if (!(Test-Path (Join-Path $core 'hiddify-core.dll'))) {throw 'Missing Hiddify Core DLL'}
 
 @'
-FHG browser (EXPERIMENTAL, NOT SECURITY-CERTIFIED)
-1. Extract the complete ZIP into a writable folder.
-2. Run FHG.exe.
-3. Choose a local Hiddify config file and press Connect Hiddify.
-4. Press Open Browser; approve one-time security guard setup if requested.
-The browser remains open if Hiddify disconnects; online requests must fail.
-The network guard is experimental and MUST NOT yet be trusted for sensitive activity.
-No system Firefox installation is modified. Do not move the app after enabling WFP
-until its guard setup is updated for the new executable path.
+FHG Browser v0.2.0-alpha.1  -  EXPERIMENTAL WINDOWS BUILD
+------------------------------------------------------------
+IMPORTANT: NOT CERTIFIED LEAK-FREE. NOT FOR ANONYMITY-CRITICAL USE.
+
+1. Extract the entire ZIP to a stable directory on Windows 10/11 x64.
+2. Run FHG.exe (modern WPF connection dashboard).
+3. Paste a Hiddify subscription URL, share link or JSON/text profile,
+   or use Import file. Never put private subscription links on GitHub.
+4. Click Connect. "Proxy ready" only means the local listener is open;
+   "Connected" requires a successful HTTPS latency test via SOCKS5.
+5. Click Open secure browser. Accept one-time UAC only to install FHG
+   browser-specific Windows Filtering Platform restrictions.
+6. Firefox tabs stay open while Hiddify is disconnected; network requests
+   should fail rather than fall back to direct sockets.
+
+SECURITY:
+- FHG does NOT change firewall profiles or existing installed Firefox.
+- HiddifyCore config can use DIRECT routes; inspect routing and DNS settings.
+- FHG and FHGGuard are unsigned unless the publisher supplies a real
+  code-signing certificate. SHA-256 and provenance do NOT replace signing.
+- Firefox in-app automatic updates are disabled for this alpha to keep
+  guard executable coverage stable. Download a NEW reviewed FHG release
+  for Mozilla security updates; do not let this alpha become stale.
+- The synthetic Windows WFP tests do not prove absence of real browser
+  or Hiddify leaks. Run full packet capture before sensitive use.
+- No elevated privileges are needed for ordinary launches after proper
+  guard installation, unless the installation or location changes.
+
+The BUILD-SECURITY.json file contains checksums and signing results.
 '@ | Set-Content -Path (Join-Path $root 'START-HERE.txt') -Encoding utf8
 
 # Reproducible checksum & signature report lives alongside the application.

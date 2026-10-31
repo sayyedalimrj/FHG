@@ -1,0 +1,46 @@
+name: Windows FHG controller x64
+on:
+  push:
+    paths:
+      - "native/app/**"
+      - "native/guard/**"
+      - "firefox/distribution/**"
+      - ".github/workflows/windows-controller.yml"
+      - "packaging/**"
+  pull_request:
+    paths:
+      - "native/app/**"
+      - "native/guard/**"
+      - "firefox/distribution/**"
+      - ".github/workflows/windows-controller.yml"
+      - "packaging/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure controller
+        run: cmake -S native/app -B build-app -G "Visual Studio 17 2022" -A x64
+      - name: Compile controller
+        run: cmake --build build-app --config Release --parallel
+      - name: Configure guard
+        run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
+      - name: Compile guard
+        run: cmake --build build-guard --config Release --parallel
+      - name: Package native components
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build-app/Release/FHG.exe dist/FHG.exe
+          Copy-Item build-guard/Release/FHGGuard.exe dist/FHGGuard.exe
+          Copy-Item firefox/distribution/policies.json dist/policies.json
+      - name: Upload experimental components
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHG-experimental-controller-x64
+          path: dist/*
+          if-no-files-found: error

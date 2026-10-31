@@ -173,26 +173,31 @@ bool validRule(HANDLE h, const std::wstring& path, unsigned reason, FWP_BYTE_BLO
   return ok;
 }
 std::vector<GUID> allFilterKeys(HANDLE h) {
-  FWPM_FILTER_ENUM_TEMPLATE0 criteria{};
-  criteria.providerKey=const_cast<GUID*>(&kProvider);
-  criteria.enumType=FWP_FILTER_ENUM_FULLY_CONTAINED;
-  criteria.actionMask=0xffffffffU;
-  HANDLE e=nullptr;
-  expect(FwpmFilterCreateEnumHandle0(h,&criteria,&e),"FwpmFilterCreateEnumHandle0");
+  // WFP enumeration requires an explicit layer: zero GUID gives FWP_E_LAYER_NOT_FOUND.
   std::vector<GUID> result;
-  while (true) {
-    FWPM_FILTER0** batch=nullptr;
-    UINT32 n=0;
-    DWORD code=FwpmFilterEnum0(h,e,128,&batch,&n);
-    if(code) {
-      FwpmFilterDestroyEnumHandle0(h,e);
-      expect(code,"FwpmFilterEnum0");
+  const GUID layers[2] = {FWPM_LAYER_ALE_AUTH_CONNECT_V4, FWPM_LAYER_ALE_AUTH_CONNECT_V6};
+  for (const auto& layer : layers) {
+    FWPM_FILTER_ENUM_TEMPLATE0 criteria{};
+    criteria.providerKey=const_cast<GUID*>(&kProvider);
+    criteria.layerKey=layer;
+    criteria.enumType=FWP_FILTER_ENUM_FULLY_CONTAINED;
+    criteria.actionMask=0xffffffffU;
+    HANDLE e=nullptr;
+    expect(FwpmFilterCreateEnumHandle0(h,&criteria,&e),"FwpmFilterCreateEnumHandle0");
+    while (true) {
+      FWPM_FILTER0** batch=nullptr;
+      UINT32 n=0;
+      DWORD code=FwpmFilterEnum0(h,e,128,&batch,&n);
+      if(code) {
+        FwpmFilterDestroyEnumHandle0(h,e);
+        expect(code,"FwpmFilterEnum0");
+      }
+      for (UINT32 i=0;i<n;++i) result.push_back(batch[i]->filterKey);
+      if(batch) FwpmFreeMemory0(reinterpret_cast<void**>(&batch));
+      if(n==0) break;
     }
-    for (UINT32 i=0;i<n;++i) result.push_back(batch[i]->filterKey);
-    if(batch) FwpmFreeMemory0(reinterpret_cast<void**>(&batch));
-    if(n==0) break;
+    expect(FwpmFilterDestroyEnumHandle0(h,e),"FwpmFilterDestroyEnumHandle0");
   }
-  expect(FwpmFilterDestroyEnumHandle0(h,e),"FwpmFilterDestroyEnumHandle0");
   return result;
 }
 void ensureProvider(HANDLE h) {

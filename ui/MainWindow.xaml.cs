@@ -33,6 +33,14 @@ public partial class MainWindow : Window
     private bool _checking;
     private int _ticks;
     private DateTime _lastLatency = DateTime.MinValue;
+    private readonly SubscriptionStore _subscriptions;
+    private SubscriptionItem? _activeSubscription;
+    private ClashControl? _clash;
+    private string _clashSecret = "";
+    private const int ClashPort = 6756;
+    private string _selector = "";
+    private DateTime _lastNodesRefresh = DateTime.MinValue;
+    private bool _nodesBusy;
     private bool _httpVerified; // A listening SOCKS socket is not proof of internet access.
 
     private static readonly Brush Good = Brush("#4ADEB5");
@@ -45,7 +53,9 @@ public partial class MainWindow : Window
         _firefox = Path.Combine(_firefoxDirectory, "firefox.exe");
         _coreExecutable = Path.Combine(_root, "Core", "HiddifyCli.exe");
         _guardExecutable = Path.Combine(_root, "FHGGuard.exe");
+        _subscriptions = new SubscriptionStore(_dataDirectory);
         InitializeComponent();
+        SubscriptionList.ItemsSource = _subscriptions.Items;
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         _timer.Tick += Timer_Tick;
         ConfigInput.TextChanged += (_, _) => UpdateConfigHint();
@@ -194,40 +204,36 @@ public partial class MainWindow : Window
             return;
         }
         string input = ConfigInput.Text.Trim();
-        string? source = null;
-        if (input.Length == 0)
+        string source;
+        try
         {
-            string saved = Path.Combine(_dataDirectory, "last-profile.txt");
-            if (File.Exists(saved)) source = saved;
-            else { SetMessage("Paste a share link/URL/JSON or import a file first."); return; }
+            if (input.Length > 0)
+            {
+                if (input.StartsWith("{", StringComparison.Ordinal) || input.StartsWith("[", StringComparison.Ordinal))
+                    using (JsonDocument.Parse(input)) { }
+                _activeSubscription = _subscriptions.Add(input);
+                SubscriptionList.SelectedItem = _activeSubscription;
+            }
+            else if (_activeSubscription is null)
+            {
+                _activeSubscription = _subscriptions.Items.FirstOrDefault();
+            }
+            if (_activeSubscription is null)
+            {
+                SetMessage("Paste or import a subscription first."); return;
+            }
+            source = _activeSubscription.IsRemote ? _activeSubscription.Source :
+                     _activeSubscription.LocalPath ?? throw new InvalidDataException("Missing local profile path");
+            _clashSecret = ClashControl.NewSecret();
+            _clash?.Dispose();
+            _clash = new ClashControl(ClashPort, _clashSecret);
         }
-        else if (input.Length > 1024 * 1024)
+        catch (Exception ex)
         {
-            SetMessage("Profile is larger than 1 MiB."); return;
-        }
-        else if (input.StartsWith("{", StringComparison.Ordinal) || input.StartsWith("[", StringComparison.Ordinal))
-        {
-            try { using var json = JsonDocument.Parse(input); }
-            catch (JsonException) { SetMessage("Invalid JSON syntax. No core started."); return; }
+            SetMessage("Invalid subscription: " + ex.Message);
+            return;
         }
 
-        if (source is null)
-        {
-            // Hiddify's run -c accepts a URL or a local file. Use the CLI parser for share links.
-            // Do not resolve URLs or fetch subscriptions directly from the UI.
-            if (input.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
-                Uri.TryCreate(input, UriKind.Absolute, out var uri) &&
-                uri.Scheme == Uri.UriSchemeHttps &&
-                !input.Contains('\n'))
-            {
-                source = input;
-            }
-            else
-            {
-                source = Path.Combine(_dataDirectory, "last-profile.txt");
-                await File.WriteAllTextAsync(source, input, new UTF8Encoding(false));
-            }
-        }
         try
         {
             var start = new ProcessStartInfo(_coreExecutable)
@@ -245,6 +251,11 @@ public partial class MainWindow : Window
             start.ArgumentList.Add(ProxyPort.ToString());
             start.ArgumentList.Add("--log-level");
             start.ArgumentList.Add("warn");
+            start.ArgumentList.Add("--web-port");
+            start.ArgumentList.Add(ClashPort.ToString());
+            start.ArgumentList.Add("--web-secret");
+            start.ArgumentList.Add(_clashSecret);
+            // Authenticated Clash API is consumed only on 127.0.0.1 by this UI.
             // No TUN, no Windows-wide proxy settings.
             _core = new Process { StartInfo = start, EnableRaisingEvents = true };
             _core.OutputDataReceived += (_, _) => { }; // never log profile contents or URLs
@@ -291,6 +302,11 @@ public partial class MainWindow : Window
         catch { }
         try { _core?.Dispose(); } catch { }
         _core = null;
+        _clash?.Dispose();
+        _clash = null;
+        _clashSecret = "";
+        _selector = "";
+        ServerList.ItemsSource = null;
         _httpVerified = false;
     }
 
@@ -380,6 +396,8 @@ public partial class MainWindow : Window
             if (_ticks % 4 == 0) await RefreshGuardAsync();
             if (ProxyOwnedByCore() && (DateTime.UtcNow - _lastLatency).TotalSeconds > 18)
                 await CheckLatencyAsync();
+            if (ProxyOwnedByCore() && (DateTime.UtcNow - _lastNodesRefresh).TotalSeconds > 30)
+                await ReloadServersAsync(quiet:true);
         }
         finally { _checking = false; }
     }
@@ -529,6 +547,151 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { SetMessage("Browser launch failed: " + ex.Message); }
         finally { _busy = false; BrowserButton.IsEnabled = true; }
+    }
+
+
+    private void Tab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button button) return;
+        string tab = button.Tag?.ToString() ?? "add";
+        AddPanel.Visibility = tab == "add" ? Visibility.Visible : Visibility.Collapsed;
+        SubscriptionsPanel.Visibility = tab == "subs" ? Visibility.Visible : Visibility.Collapsed;
+        ServersPanel.Visibility = tab == "nodes" ? Visibility.Visible : Visibility.Collapsed;
+        AddTab.Background = Brush(tab == "add" ? "#3C91EA" : "#27344D");
+        SubsTab.Background = Brush(tab == "subs" ? "#3C91EA" : "#27344D");
+        NodesTab.Background = Brush(tab == "nodes" ? "#3C91EA" : "#27344D");
+    }
+
+    private void SubscriptionList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        var sub = SubscriptionList.SelectedItem as SubscriptionItem;
+        if (sub is null)
+        {
+            SelectedSubName.Text = "Select a subscription";
+            SubUsage.Text = SubRemaining.Text = SubExpiry.Text = "—";
+            SubProgress.Value = 0;
+            return;
+        }
+        SelectedSubName.Text = sub.Name;
+        SubUsage.Text = sub.Usage;
+        SubRemaining.Text = sub.Remaining;
+        SubExpiry.Text = sub.Expiry;
+        double used = Math.Max(0, sub.Upload.GetValueOrDefault()) + Math.Max(0, sub.Download.GetValueOrDefault());
+        SubProgress.Value = sub.Total is > 0 ? Math.Clamp(used / sub.Total.Value * 100, 0, 100) : 0;
+        // A metadata-only selection doesn't automatically switch the running tunnel.
+    }
+
+    private void ActivateSub_Click(object sender, RoutedEventArgs e)
+    {
+        if (SubscriptionList.SelectedItem is not SubscriptionItem item) return;
+        if (CoreRunning)
+        {
+            SetMessage("Disconnect the active Hiddify session before activating another subscription.");
+            return;
+        }
+        _activeSubscription = item;
+        ConfigInput.Text = item.IsRemote ? item.Source :
+            (item.LocalPath is not null && File.Exists(item.LocalPath) ? File.ReadAllText(item.LocalPath) : "");
+        Tab_Click(AddTab, new RoutedEventArgs());
+        SetMessage("Subscription selected. Press Connect to use it.");
+    }
+
+    private void RemoveSub_Click(object sender, RoutedEventArgs e)
+    {
+        if (SubscriptionList.SelectedItem is not SubscriptionItem item) return;
+        if (CoreRunning && ReferenceEquals(item, _activeSubscription))
+        {
+            SetMessage("Disconnect before removing the active subscription."); return;
+        }
+        if (MessageBox.Show(this, $"Remove '{item.Name}' from FHG? The server subscription itself will not be modified.",
+                "Remove subscription", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        _subscriptions.Remove(item);
+        if (ReferenceEquals(_activeSubscription, item)) _activeSubscription = null;
+        SetMessage("Subscription removed from the local FHG list.");
+    }
+
+    private async void RefreshSub_Click(object sender, RoutedEventArgs e) => await RefreshSubscriptionAsync();
+
+    private async Task RefreshSubscriptionAsync()
+    {
+        if (SubscriptionList.SelectedItem is not SubscriptionItem selected) { SetMessage("Select a subscription."); return; }
+        if (!selected.IsRemote) { SetMessage("Local profile: usage is only available if inline subscription-userinfo is provided."); return; }
+        if (!ProxyOwnedByCore()) { SetMessage("Connect Hiddify first. Quota lookup never uses a direct connection."); return; }
+        try
+        {
+            SetMessage("Reading subscription quota through the Hiddify SOCKS5 tunnel...");
+            await SubscriptionStore.RefreshRemoteMetadataAsync(selected);
+            _subscriptions.Save();
+            SubscriptionList_SelectionChanged(SubscriptionList, new System.Windows.Controls.SelectionChangedEventArgs(
+                System.Windows.Controls.Primitives.Selector.SelectionChangedEvent, [], []));
+            // Force list re-render after metadata changes.
+            SubscriptionList.Items.Refresh();
+            SetMessage("Subscription metadata updated. Missing quota means the provider did not report it.");
+        }
+        catch (Exception ex)
+        {
+            SetMessage("Subscription refresh failed via Hiddify: " + ex.Message);
+        }
+    }
+
+    private async void ReloadNodes_Click(object sender, RoutedEventArgs e) => await ReloadServersAsync();
+    private async Task ReloadServersAsync(bool quiet = false)
+    {
+        if (_nodesBusy || !ProxyOwnedByCore() || _clash is null)
+        {
+            if (!quiet) SetMessage("Connect Hiddify first to load available servers.");
+            return;
+        }
+        _nodesBusy = true;
+        _lastNodesRefresh = DateTime.UtcNow;
+        try
+        {
+            var info = await _clash.GetServersAsync();
+            _selector = info.Selector;
+            ServerList.ItemsSource = info.Servers;
+            ServersHint.Text = $"{info.Servers.Length} servers from Hiddify Core" +
+                (string.IsNullOrEmpty(_selector) ? " · no selector available" : $" · group: {_selector}");
+            if (!quiet) SetMessage("Server list refreshed from Hiddify Clash API.");
+        }
+        catch
+        {
+            ServersHint.Text = "Node list is unavailable: Hiddify's local Clash API is not running or authenticated.";
+            if (!quiet) SetMessage("Cannot fetch server list from Hiddify. Check that this build enables its Clash API.");
+        }
+        finally { _nodesBusy = false; }
+    }
+
+    private async void TestNode_Click(object sender, RoutedEventArgs e)
+    {
+        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore())
+        {
+            SetMessage("Select a node while Hiddify is connected."); return;
+        }
+        try
+        {
+            node.Latency = "Testing…";
+            ServerList.Items.Refresh();
+            int? delay = await _clash.TestNodeAsync(node.Name);
+            node.Latency = delay.HasValue ? $"{delay.Value} ms" : "Timeout";
+            ServerList.Items.Refresh();
+            SetMessage(delay.HasValue ? "Node delay measured by Hiddify Core." : "Node could not reach the test endpoint.");
+        }
+        catch (Exception ex) { node.Latency = "Error"; ServerList.Items.Refresh(); SetMessage("Node test failed: " + ex.Message); }
+    }
+
+    private async void SelectNode_Click(object sender, RoutedEventArgs e)
+    {
+        if (ServerList.SelectedItem is not ServerItem node || _clash is null || !ProxyOwnedByCore())
+        {
+            SetMessage("Select a node while Hiddify is connected."); return;
+        }
+        try
+        {
+            await _clash.SelectNodeAsync(_selector, node.Name);
+            await ReloadServersAsync();
+            SetMessage($"Selected server: {node.Name}");
+        }
+        catch (Exception ex) { SetMessage("Server selection failed: " + ex.Message); }
     }
 
     private void SetMessage(string text) => MessageStatus.Text = text;

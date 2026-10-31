@@ -20,6 +20,8 @@ public sealed class SubscriptionItem
     public string Name { get; set; } = "New subscription";
     public string Source { get; set; } = "";
     public string? LocalPath { get; set; }
+    public string? PreferredServer { get; set; }
+    public string? PreferredGroup { get; set; }
     public long? Upload { get; set; }
     public long? Download { get; set; }
     public long? Total { get; set; }

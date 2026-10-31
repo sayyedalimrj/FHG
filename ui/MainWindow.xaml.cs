@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private bool _checking;
     private int _ticks;
     private DateTime _lastLatency = DateTime.MinValue;
+    private bool _httpVerified; // A listening SOCKS socket is not proof of internet access.
 
     private static readonly Brush Good = Brush("#4ADEB5");
     private static readonly Brush Warning = Brush("#E9BD77");
@@ -290,6 +291,7 @@ public partial class MainWindow : Window
         catch { }
         try { _core?.Dispose(); } catch { }
         _core = null;
+        _httpVerified = false;
     }
 
     private void Disconnect_Click(object sender, RoutedEventArgs e)
@@ -359,11 +361,12 @@ public partial class MainWindow : Window
         UpdateConnectionState(active);
     }
 
-    private void UpdateConnectionState(bool connected)
+    private void UpdateConnectionState(bool listenerReady)
     {
-        ConnectionBadge.Text = connected ? "Connected" : "Offline";
-        StateDot.Foreground = connected ? Good : Warning;
-        if (!connected) LatencyStatus.Text = "—";
+        if (!listenerReady) _httpVerified = false;
+        ConnectionBadge.Text = !listenerReady ? "Offline" : _httpVerified ? "Connected" : "Proxy ready";
+        StateDot.Foreground = listenerReady && _httpVerified ? Good : Warning;
+        if (!listenerReady) LatencyStatus.Text = "—";
     }
 
     private async void Timer_Tick(object? sender, EventArgs e)
@@ -409,10 +412,14 @@ public partial class MainWindow : Window
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
             watch.Stop();
             LatencyStatus.Text = response.IsSuccessStatusCode ? $"{watch.ElapsedMilliseconds} ms" : $"HTTP {(int)response.StatusCode}";
-            if (response.IsSuccessStatusCode) SetMessage("HTTPS round trip measured through Hiddify SOCKS5 (not ICMP ping).");
+            _httpVerified = response.IsSuccessStatusCode && ProxyOwnedByCore();
+            UpdateConnectionState(ProxyOwnedByCore());
+            if (_httpVerified) SetMessage("HTTPS round trip measured through Hiddify SOCKS5 (not ICMP ping).");
         }
         catch (Exception)
         {
+            _httpVerified = false;
+            UpdateConnectionState(ProxyOwnedByCore());
             LatencyStatus.Text = "Timeout / error";
             SetMessage("HTTPS test through Hiddify failed. No direct-network fallback was used by the test.");
         }

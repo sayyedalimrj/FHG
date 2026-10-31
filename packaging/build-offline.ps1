@@ -75,6 +75,14 @@ Get-ChildItem $cli.Directory.FullName -File -Filter '*.dll' | ForEach-Object {
 }
 if (!(Test-Path (Join-Path $core 'hiddify-core.dll'))) {throw 'Missing Hiddify Core DLL'}
 
+Write-Host 'Verify upstream Hiddify CLI supports FHG local API and proxy flags...'
+$cliHelp = (& (Join-Path $core 'HiddifyCli.exe') run --help 2>&1 | Out-String)
+foreach($flag in @('--web-port','--web-secret','--in-proxy-port')) {
+  if(!$cliHelp.Contains($flag)) { throw "Hiddify v4.1.1 CLI does not advertise required flag $flag. Refusing incompatible build." }
+}
+Write-Host 'PASS: Hiddify CLI local API and SOCKS flags exist.'
+
+
 @'
 FHG Browser v0.2.0-alpha.1  -  EXPERIMENTAL WINDOWS BUILD
 ------------------------------------------------------------

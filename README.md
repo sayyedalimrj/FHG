@@ -1,29 +1,23 @@
-# FHG — Firefox + Hiddify (source project)
+# FHG — secure Firefox + Hiddify browser project
 
-> **Development status: security foundation, not a finished browser.**
+**Status: architecture and Firefox policy scaffold committed; no integrated browser binary exists yet.**
 
-FHG aims to build a Windows browser based on Firefox source and Hiddify Core with a **fail-closed** network boundary. Browser processes may connect only to a local Hiddify SOCKS5 listener at `127.0.0.1:12334`. Hiddify Core is a separate trusted network process; it is **not** covered by the browser's block rules.
+Goal: create a Windows browser based on Firefox with separately isolated Hiddify Core networking and a fail-closed network boundary. The browser should only connect over TCP to a local SOCKS5 listener, currently `127.0.0.1:12334`. Hiddify Core handles remote network traffic in its own process.
 
-## Repo layout
+## Current files
 
-- `native/guard/`: Windows Filtering Platform (WFP) security boundary. Source and CI build. 
-- `firefox/distribution/policies.json`: browser-local locked SOCKS5, remote DNS and WebRTC policy.
-- `docs/SECURITY.md`: threat model, validation and open security gaps.
-- `.github/workflows/windows-guard.yml`: Windows compiler build and policy tests.
+- [Security architecture](docs/ARCHITECTURE.md): process isolation, WFP requirements and release security tests.
+- [Firefox browser-local policy](firefox/distribution/policies.json): locked SOCKS5 proxy, proxy-side DNS, WebRTC disabled.
+- [CI policy validation](.github/workflows/policy-check.yml): static configuration assertions. **A green CI run is not a leak test.**
 
-## What is and isn't built
+## Implementation still required
 
-The Windows workflow builds **FHGGuard.exe**, a standalone guard component. This repository does **not yet** contain a compiled Firefox fork, the integrated Hiddify Core UI, or a certified no-leak browser. The guard is intentionally not bundled with any auto-running browser until security tests on Windows succeed.
+1. Build and test a Windows Filtering Platform guard with browser-executable-scoped allow-only-local-SOCKS enforcement and verified persistent fail-closed behavior. Include install/uninstall and policy checks.
+2. Integrate Hiddify Core in a supervised, separate subprocess with authenticated control IPC and fail-safe startup/shutdown.
+3. Build a Firefox fork and user interface for connection management, keeping browser profile and executable isolation from users' existing Firefox installations.
+4. Run real Windows 10/11 egress capture, crash/reconnect, direct launch, IPv6/DNS/WebRTC, port hijack and cross-application impact tests.
+5. Only distribute once runtime security gates pass.
 
-Firefox source: https://github.com/mozilla-firefox/firefox  
-Hiddify Core source: https://github.com/hiddify/hiddify-core
+Source projects: [Firefox](https://github.com/mozilla-firefox/firefox), [Hiddify Core](https://github.com/hiddify/hiddify-core).
 
-## Security principle
-
-1. Install and verify persistent app-scoped WFP restrictions **before** launching any browser processes.
-2. The browser process may open only IPv4 TCP connections to `127.0.0.1:12334`; all IPv6 connections are blocked. An absent proxy must mean no network access, not fallback to DIRECT.
-3. Only executables under the FHG Firefox bundle are targeted. Never modify the system Firefox installation, default browser, or general Windows Firewall profiles.
-4. No system-wide firewall disabling. Failure to install or verify the guard is a hard stop.
-5. Treat runtime traffic capture and forced disconnect tests as release gates, not optional checks.
-
-See [security specification](docs/SECURITY.md) and [Windows build instructions](native/guard/README.md).
+**Do not advertise zero leaks or a finished release at this stage.**

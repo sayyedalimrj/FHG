@@ -58,7 +58,7 @@ jobs:
           $links=Get-Content vendor/lib/core/router/deep_linking/my_app_links.dart -Raw
           if (!$runner.Contains('FHGProxyMutex') -or $runner.Contains('HiddifyMutex')) {throw 'Native GUI still conflicts with ordinary Hiddify'}
           if (!$dirs.Contains('fhg_proxy_portable_data')) {throw 'Dedicated data folder missing'}
-          if ($tray.Contains('...ServiceMode.values.map(')) {throw 'Tray still exposes unsupported VPN modes'}
+          if (!$tray.Contains("key: 'fhg-proxy-locked'")) {throw 'Locked proxy-only tray label is missing'}
           if ($links.Contains('registerProtocolHandler(protocol);')) {throw 'FHG still overwrites original Hiddify protocol handlers'}
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0

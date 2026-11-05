@@ -188,6 +188,12 @@ replace("Makefile",
         "curl -L $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/",
         "curl -fSL --retry 8 --retry-all-errors --retry-delay 6 --connect-timeout 25 --max-time 420 $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/")
 
+# Original author's translated common title is still "Hiddify 5.5.5" on the
+# home screen even after branding the EXE/icon. Keep upstream version accurate.
+replace("lib/features/home/widget/home_page.dart",
+        "TextSpan(text: t.common.appTitle),",
+        "const TextSpan(text: 'FHG Proxy'),")
+
 # FHG subscription fetches may use only the user-approved loopback:12334
 # bootstrap. This DOES NOT change Firefox (which always uses guarded :12345).
 replace("lib/core/http_client/dio_http_client.dart",

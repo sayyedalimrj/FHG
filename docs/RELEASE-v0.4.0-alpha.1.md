@@ -46,3 +46,7 @@ FHG's launcher source is public in this repository. This package is provided fre
 Mozilla Firefox is provided from Mozilla's official distribution and retains its trademarks, code-signature and licensing.
 
 **This is a functional integration preview, not a certified security/privacy product.**
+
+## Build validation record
+
+[Windows x64 guard and upstream GUI build](https://github.com/sayyedalimrj/FHG/actions/runs/42018798834) passed. The upstream Hiddify v5.5.5 portable archive SHA-256 was checked, its complete GUI assets were included, the Mozilla Firefox executable signature was checked, and Windows WFP synthetic IPv4/IPv6 rules passed. These CI checks are **not** a live end-to-end leak test.

@@ -252,6 +252,15 @@ internal sealed class AccountsWindow : Form
             Left = 26, Top = 92, Width = card.Width - 355, Height = 24, Cursor = Cursors.Hand
         };
         card.Controls.Add(sub);
+        var setupLink = new LinkLabel
+        {
+            Text = "Copy setup link for Firefox Authenticator",
+            Left = 26, Top = 116, Width = 340, Height = 22,
+            LinkColor = Accent, ActiveLinkColor = Mint, Font = SmallFont,
+            Cursor = Cursors.Hand
+        };
+        setupLink.LinkClicked += (_, _) => Safely(() => CopyAuthenticatorSetup(account));
+        card.Controls.Add(setupLink);
         var code = new Label
         {
             Text = "••• •••", Font = CodeFont, ForeColor = Ink,
@@ -344,6 +353,21 @@ internal sealed class AccountsWindow : Form
         Clipboard.SetText(code);
         status.Text = "6-digit code copied for " + account.Label +
                       ". Clipboard contents are visible to applications in your Windows session.";
+    }
+
+    private void CopyAuthenticatorSetup(FhgAccount account)
+    {
+        // Authenticator by mymindstorm explicitly supports importing text
+        // containing otpauth:// lines (its published interoperable format).
+        // Do NOT edit its signed XPI, Firefox storage or private database.
+        // A master secret goes to Windows clipboard only after this click.
+        string seed = account.TotpSeed.Replace(" ", "").TrimEnd('=').ToUpperInvariant();
+        string label = Uri.EscapeDataString(account.Label.Replace(":", ""));
+        string uri = "otpauth://totp/ChatGPT:" + label
+            + "?secret=" + Uri.EscapeDataString(seed)
+            + "&issuer=ChatGPT&algorithm=SHA1&digits=6&period=30";
+        Clipboard.SetText(uri);
+        status.Text = "Confidential Authenticator setup link copied. In Firefox click Authenticator > Settings > Backup > Import > Import Text Backup, then paste.";
     }
 
     private void AddAccount()

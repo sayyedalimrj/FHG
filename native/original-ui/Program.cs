@@ -10,6 +10,9 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Security.Cryptography;
+using System.Security.Principal;
+using System.Net;
+using System.Net.Sockets;
 using System.Windows.Forms;
 
 internal static class Program
@@ -79,6 +82,7 @@ internal static class Program
             }
 
             Directory.CreateDirectory(ProfileDir);
+            InstallChatGptStartTile();
             var browser = new ProcessStartInfo(FirefoxExe)
             {
                 WorkingDirectory = FirefoxDir,
@@ -87,7 +91,7 @@ internal static class Program
             browser.ArgumentList.Add("-no-remote");
             browser.ArgumentList.Add("-profile");
             browser.ArgumentList.Add(ProfileDir);
-            browser.ArgumentList.Add("about:blank");
+            browser.ArgumentList.Add("https://chatgpt.com/");
 
             using var firefox = Process.Start(browser);
             if (firefox is null)
@@ -126,18 +130,41 @@ internal static class Program
             // Do not try to bind a port already used by the user's regular Hiddify.
             // If it is occupied, fail closed before Firefox can be started.
             if (System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
-                .GetActiveTcpListeners().Any(endpoint => endpoint.Port == 12345))
+                .GetActiveTcpListeners().Any(endpoint => endpoint.Port == 12345 || endpoint.Port == 27178))
             {
-                Warn("Local port 12345 is already in use. FHG Proxy will not start. " +
-                     "Close only the app owning that port or choose another installation.");
+                Warn("FHG cannot start: either SOCKS 12345 or internal control 27178 is in use. " +
+                     "Do not close your normal Hiddify. Inspect which application owns the port, and retry.");
                 return false;
             }
 
-            using var child = Process.Start(new ProcessStartInfo(HiddifyExe)
+            var childInfo = new ProcessStartInfo(HiddifyExe)
             {
                 WorkingDirectory = Path.GetDirectoryName(HiddifyExe)!,
                 UseShellExecute = false
-            });
+            };
+
+            // A separate Hiddify installation may already provide an internet-capable
+            // local proxy. Opt-in only: subscription URLs contain private access tokens.
+            // FHG's browser NEVER uses this path, only its own guarded 12345 listener.
+            bool localBootstrapAvailable = System.Net.NetworkInformation.IPGlobalProperties
+                .GetIPGlobalProperties().GetActiveTcpListeners().Any(endpoint =>
+                    endpoint.Port == 12334 && IPAddress.IsLoopback(endpoint.Address));
+            if (localBootstrapAvailable)
+            {
+                var choice = MessageBox.Show(
+                    "An existing local proxy is listening on 127.0.0.1:12334.\n\n" +
+                    "Use it ONLY to import/update FHG Proxy subscriptions while FHG is not connected?\n" +
+                    "Subscription download URLs may include private credentials; only select Yes if this is YOUR trusted proxy.\n\n" +
+                    "After FHG Proxy connects, normal FHG traffic uses 127.0.0.1:12345.",
+                    ProductName + " - optional subscription bootstrap",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
+                if (choice == DialogResult.Yes)
+                {
+                    childInfo.Environment["FHG_BOOTSTRAP_HTTP_PROXY"] = "127.0.0.1:12334";
+                    Log("User opted in to existing loopback subscription bootstrap at port 12334.");
+                }
+            }
+            using var child = Process.Start(childInfo);
             if (child is null)
             {
                 Warn("Could not launch the official Hiddify GUI.");
@@ -191,6 +218,26 @@ internal static class Program
         {
             Log("TOTP packaging verification failed (" + e.GetType().Name + "): " + e.Message);
             return false;
+        }
+    }
+
+    private static void InstallChatGptStartTile()
+    {
+        try
+        {
+            // Initial pinned top-site preference, non-destructive for existing user.js.
+            string userJs = Path.Combine(ProfileDir, "user.js");
+            if (!File.Exists(userJs))
+            {
+                string pinned = "[{\\\"url\\\":\\\"https://chatgpt.com/\\\",\\\"label\\\":\\\"ChatGPT\\\"}]";
+                File.WriteAllText(userJs,
+                    "user_pref(\\"browser.newtabpage.pinned\\", \\"" + pinned + "\\");" + Environment.NewLine);
+                Log("ChatGPT pinned to the Firefox new tab page for a fresh FHG profile.");
+            }
+        }
+        catch (Exception e)
+        {
+            Log("ChatGPT start tile setup failed: " + e.Message);
         }
     }
 
@@ -259,7 +306,9 @@ internal static class Program
         if (GuardStatus()) return true;
         if (!File.Exists(GuardExe)) { Log("Guard EXE missing."); return false; }
 
-        var answer = MessageBox.Show(
+        bool isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+            .IsInRole(WindowsBuiltInRole.Administrator);
+        var answer = isAdmin ? DialogResult.Yes : MessageBox.Show(
             "FHG must install read-only-verifiable Windows network protection for its own Firefox. " +
             "This never changes Windows Firewall profiles or your regular Firefox." +
             "\n\nAdministrator approval is needed only if rules are missing or outdated." +
@@ -274,15 +323,16 @@ internal static class Program
             var psi = new ProcessStartInfo(GuardExe)
             {
                 WorkingDirectory = Root,
-                UseShellExecute = true,
-                Verb = "runas"
+                UseShellExecute = !isAdmin,
+                Verb = isAdmin ? "" : "runas",
+                CreateNoWindow = isAdmin
             };
             psi.ArgumentList.Add("install");
             psi.ArgumentList.Add(FirefoxDir);
             using var process = Process.Start(psi);
             if (process is null) { Log("Elevated guard process did not start."); return false; }
             process.WaitForExit();
-            Log("Elevated guard install exit=" + process.ExitCode);
+            Log("Guard install exit=" + process.ExitCode + (isAdmin ? " (already elevated)" : " (UAC-approved)"));
             if (process.ExitCode != 0) return false;
 
             bool verified = GuardStatus();
@@ -293,7 +343,7 @@ internal static class Program
         catch (System.ComponentModel.Win32Exception e) when (e.NativeErrorCode == 1223)
         {
             // ERROR_CANCELLED is a declined UAC prompt, not a WFP regression.
-            Log("FHG WFP guard installation was canceled at the Windows UAC prompt (1223).");
+            Log("Windows administrator approval was canceled (1223). FHG cannot safely open Firefox until the guard is installed.");
             return false;
         }
         catch (Exception e)

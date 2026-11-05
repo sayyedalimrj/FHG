@@ -64,7 +64,7 @@ internal static class Program
             }
             if (!ConfigureBundledTotp())
             {
-                Warn("The bundled authenticator extension failed integrity verification. Firefox was not started. " +
+                Warn("The bundled Authenticator add-on failed integrity verification. Firefox was not started. " +
                      "Re-extract a clean official FHG release; never use an unknown TOTP add-on.");
                 return 8;
             }
@@ -186,8 +186,8 @@ internal static class Program
     {
         try
         {
-            string addon = Path.Combine(FirefoxDir, "distribution", "fhg-totp.xpi");
-            if (!File.Exists(addon)) return true; // Fallback to official AMO install URL.
+            string addon = Path.Combine(FirefoxDir, "distribution", "fhg-authenticator.xpi");
+            if (!File.Exists(addon)) { Log("Signed Authenticator XPI absent. FHG refuses to use an incomplete package."); return false; }
 
             string checksum = addon + ".sha256";
             if (!File.Exists(checksum)) return false;
@@ -204,14 +204,14 @@ internal static class Program
             string policyPath = Path.Combine(FirefoxDir, "distribution", "policies.json");
             var doc = JsonNode.Parse(File.ReadAllText(policyPath));
             if (doc?["policies"] is not JsonObject policies) return false;
-            if (policies["Extensions"] is not JsonObject extSettings) return false;
+            if (policies["ExtensionSettings"] is not JsonObject extSettings) return false;
+            if (extSettings["authenticator@mymindstorm"] is not JsonObject authenticator) return false;
             string localUri = new Uri(addon).AbsoluteUri;
-            var installs = extSettings["Install"] as JsonArray;
-            if (installs is null) return false;
-            if (installs.Count == 1 && installs[0]?.GetValue<string>() == localUri) return true;
-            extSettings["Install"] = new JsonArray(JsonValue.Create(localUri));
+            if (authenticator["installation_mode"]?.GetValue<string>() != "force_installed") return false;
+            if (authenticator["install_url"]?.GetValue<string>() == localUri) return true;
+            authenticator["install_url"] = localUri;
             File.WriteAllText(policyPath, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            Log("Bundled TOTP extension configured for local Firefox installation (SHA256 verified).");
+            Log("Mozilla-signed Authenticator forced into Firefox via local XPI; digest verified.");
             return true;
         }
         catch (Exception e)

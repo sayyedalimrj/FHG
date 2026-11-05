@@ -425,8 +425,29 @@ internal static class Program
         {
             string path = Path.Combine(FirefoxDir, "distribution", "policies.json");
             using var parsed = JsonDocument.Parse(File.ReadAllText(path));
-            var proxy = parsed.RootElement.GetProperty("policies").GetProperty("Proxy");
-            return proxy.GetProperty("Mode").GetString() == "manual"
+            var policies = parsed.RootElement.GetProperty("policies");
+            var proxy = policies.GetProperty("Proxy");
+
+            // Do not touch the user's real Firefox installation or browser
+            // profile. Every FHG account lives in %LOCALAPPDATA%\FHG.
+            var isolatedExe = Path.GetFullPath(FirefoxExe);
+            var isolatedDir = Path.GetFullPath(FirefoxDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var isolatedProfile = Path.GetFullPath(ProfileDir);
+            var fhgProfileRoot = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FHG"))
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!isolatedExe.StartsWith(isolatedDir, StringComparison.OrdinalIgnoreCase) ||
+                !isolatedProfile.StartsWith(fhgProfileRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("Refusing to launch a Firefox executable or profile outside isolated FHG directories.");
+                return false;
+            }
+
+            return policies.GetProperty("DisableProfileImport").GetBoolean()
+                && policies.GetProperty("DisableDefaultBrowserAgent").GetBoolean()
+                && policies.GetProperty("DefaultBrowserSettingEnabled").GetBoolean() == false
+                && policies.GetProperty("DontCheckDefaultBrowser").GetBoolean()
+                && proxy.GetProperty("Mode").GetString() == "manual"
                 && proxy.GetProperty("Locked").GetBoolean()
                 && proxy.GetProperty("SOCKSProxy").GetString() == "127.0.0.1:12345"
                 && proxy.GetProperty("SOCKSVersion").GetInt32() == 5

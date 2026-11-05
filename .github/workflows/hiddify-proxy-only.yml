@@ -103,6 +103,15 @@ jobs:
           if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";') -or !$http.Contains('bootstrapApproved ? "direct"')) {throw 'User-approved bootstrapping must take priority over an inactive local FHG proxy, without DIRECT fallback'}
           if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
           if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
+          $keep=Get-Content vendor/lib/features/proxy/keep_top/keep_top.dart -Raw
+          if (!$keep.Contains('FHG automatically selected all nodes for a big subscription') -or
+              !$keep.Contains('int get keepTop => userOverride?.keepTop ?? -1;')) {
+            throw 'FHG large subscriptions must default to all nodes without a popup'
+          }
+          $accounts=Get-Content native/account-manager/Program.cs -Raw
+          foreach($marker in @('UpdateAllCodes()', 'CopyCode(FhgAccount account)', 'Height = 146', 'otpTimer.Start();')) {
+            if (!$accounts.Contains($marker)) {throw "FHG Accounts card and automatic live 2FA missing: $marker"}
+          }
           $setup=Get-Content vendor/lib/bootstrap.dart -Raw
           $gui=Get-Content native/original-ui/Program.cs -Raw
           $wizard=Get-Content native/original-ui/FirstRunWizard.cs -Raw

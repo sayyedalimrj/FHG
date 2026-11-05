@@ -65,9 +65,28 @@
       }
     ],
     "Extensions": {
-      "Install": [
-        "https://addons.mozilla.org/firefox/downloads/latest/totp/latest.xpi"
-      ]
+      "Install": []
+    },
+    "Homepage": {
+      "URL": "https://chatgpt.com/",
+      "StartPage": "homepage",
+      "Locked": false
+    },
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": true,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Stories": false,
+      "SponsoredStories": false,
+      "Weather": false,
+      "Locked": false
+    },
+    "ExtensionSettings": {
+      "authenticator@mymindstorm": {
+        "installation_mode": "force_installed",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi"
+      }
     }
   }
 }

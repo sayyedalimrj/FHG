@@ -362,8 +362,19 @@ internal static class Program
     {
         try
         {
-            string addon = Path.Combine(FirefoxDir, "distribution", "fhg-authenticator.xpi");
-            if (!File.Exists(addon)) { Log("Signed Authenticator XPI absent. FHG refuses to use an incomplete package."); return false; }
+            // Prefer the locally bundled, separately Mozilla-signed FHG
+            // Authenticator with native DPAPI bridge. An unsigned XPI is NEVER
+            // installed; the original signed extension remains as fallback.
+            string integrated = Path.Combine(FirefoxDir, "distribution", "fhg-auto-authenticator.xpi");
+            bool useIntegrated = File.Exists(integrated);
+            string addon = useIntegrated ? integrated :
+                Path.Combine(FirefoxDir, "distribution", "fhg-authenticator.xpi");
+            if (!File.Exists(addon)) { Log("Signed Authenticator XPI missing."); return false; }
+            if (useIntegrated && !File.Exists(Path.Combine(Root, "FHGNativeHost.exe")))
+            {
+                Log("Native bridge missing: cannot activate FHG Authenticator.");
+                return false;
+            }
 
             string checksum = addon + ".sha256";
             if (!File.Exists(checksum)) return false;
@@ -381,13 +392,28 @@ internal static class Program
             var doc = JsonNode.Parse(File.ReadAllText(policyPath));
             if (doc?["policies"] is not JsonObject policies) return false;
             if (policies["ExtensionSettings"] is not JsonObject extSettings) return false;
-            if (extSettings["authenticator@mymindstorm"] is not JsonObject authenticator) return false;
+            string addonId = useIntegrated ? "fhg-authenticator@fhg.local" : "authenticator@mymindstorm";
+            if (extSettings[addonId] is not JsonObject authenticator)
+            {
+                authenticator = new JsonObject();
+                extSettings[addonId] = authenticator;
+            }
             string localUri = new Uri(addon).AbsoluteUri;
-            if (authenticator["installation_mode"]?.GetValue<string>() != "force_installed") return false;
-            if (authenticator["install_url"]?.GetValue<string>() == localUri) return true;
+            bool changed = authenticator["installation_mode"]?.GetValue<string>() != "force_installed" ||
+                           authenticator["install_url"]?.GetValue<string>() != localUri;
+            authenticator["installation_mode"] = "force_installed";
             authenticator["install_url"] = localUri;
-            File.WriteAllText(policyPath, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            Log("Mozilla-signed Authenticator forced into Firefox via local XPI; digest verified.");
+            authenticator["default_area"] = "navbar";
+            if (useIntegrated)
+            {
+                // Disable the old popup without deleting any previous OTP data.
+                extSettings["authenticator@mymindstorm"] = new JsonObject {
+                    ["installation_mode"] = "blocked"
+                };
+                changed = true;
+            }
+            if (changed) File.WriteAllText(policyPath, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Log("Bundled Authenticator configured by Firefox policy after SHA-256 check.");
             return true;
         }
         catch (Exception e)

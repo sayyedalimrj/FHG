@@ -320,6 +320,85 @@ replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
     const wantAdminBg = false;
     if (!wantAdminBg) {""")
 
+# One-time subscription import via an unguessable user-local file ticket.
+# Account password and TOTP seed are NEVER passed to Hiddify.
+replace("lib/bootstrap.dart",
+        "import 'package:flutter/foundation.dart';",
+        "import 'package:path/path.dart' as fhg_path;\nimport 'package:flutter/foundation.dart';")
+replace("lib/bootstrap.dart",
+        '''  Logger.bootstrap.info("bootstrap took [${stopWatch.elapsedMilliseconds}ms]");''',
+        '''  if (Platform.isWindows && Environment.isPortable) {
+    await _fhgOneTimeSubscription(container);
+  }
+  Logger.bootstrap.info("bootstrap took [${stopWatch.elapsedMilliseconds}ms]");''')
+bootstrap = root / "lib/bootstrap.dart"
+source = bootstrap.read_text(encoding="utf-8")
+if "Future<void> _fhgOneTimeSubscription(" in source:
+    raise SystemExit("Duplicate FHG one-time importer")
+source += r'''
+
+// The ticket contains ONLY the subscription URL, not account credentials.
+// A URL may itself contain a bearer token, so never print it to any log.
+Future<void> _fhgOneTimeSubscription(ProviderContainer container) async {
+  final requested = Platform.environment['FHG_INITIAL_SUB_FILE'];
+  if (requested == null || requested.isEmpty) return;
+
+  File? ticket;
+  File? receipt;
+  try {
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (local == null || local.isEmpty) return;
+    final safeDirectory = fhg_path.join(local, 'FHG', 'InitialSetup');
+    final allowed = await Directory(safeDirectory).resolveSymbolicLinks();
+    final canonical = await File(requested).resolveSymbolicLinks();
+    if (!fhg_path.isWithin(allowed, canonical) ||
+        !RegExp(r'^provision-[0-9a-f]{32}\.txt$').hasMatch(fhg_path.basename(canonical))) {
+      throw StateError('Rejected an untrusted setup-file path');
+    }
+    ticket = File(canonical);
+    receipt = File('$canonical.status');
+    if (await ticket.length() > 8192) {
+      throw StateError('Subscription ticket was too large');
+    }
+    final url = (await ticket.readAsString()).trim();
+    final parsed = Uri.tryParse(url);
+    if (parsed == null || parsed.scheme != 'https' ||
+        parsed.host.isEmpty || parsed.userInfo.isNotEmpty) {
+      throw StateError('Setup subscription URL must be HTTPS');
+    }
+    final repo = container.read(profileRepositoryProvider).requireValue;
+    final result = await repo.upsertRemote(url).run();
+    result.match(
+      (failure) => throw StateError('Subscription import or config validation failed'),
+      (_) => null,
+    );
+    await repo.watchActiveProfile().firstWhere(
+      (event) => event.match((_) => false, (profile) => profile != null),
+    ).timeout(const Duration(seconds: 8));
+
+    await container.read(Preferences.startedByUser.notifier).update(true);
+    await container.read(connectionNotifierProvider.notifier).restoreConnectionOnStartup();
+    await receipt.writeAsString('IMPORTED');
+    Logger.bootstrap.info('FHG initial subscription validated and connection requested');
+  } catch (error) {
+    Logger.bootstrap.warning('FHG initial subscription setup did not complete (${error.runtimeType})');
+    if (receipt != null) {
+      try {
+        await receipt.writeAsString('FAILED');
+      } catch (_) {}
+    }
+  } finally {
+    // Leave the original four-line file unchanged (user-owned).
+    if (ticket != null) {
+      try {
+        if (await ticket.exists()) await ticket.delete();
+      } catch (_) {}
+    }
+  }
+}
+'''
+bootstrap.write_text(source, encoding="utf-8", newline="\n")
+print("BRAND lib/bootstrap.dart — one-time private subscription import")
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

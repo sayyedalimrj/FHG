@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 
 internal static class Program
@@ -56,6 +58,12 @@ internal static class Program
             {
                 Warn("The bundled Firefox executable is missing. Hiddify remains usable.");
                 return 4;
+            }
+            if (!ConfigureBundledTotp())
+            {
+                Warn("The bundled authenticator extension failed integrity verification. Firefox was not started. " +
+                     "Re-extract a clean official FHG release; never use an unknown TOTP add-on.");
+                return 8;
             }
             if (!VerifyFirefoxPolicy())
             {
@@ -140,6 +148,48 @@ internal static class Program
         catch (Exception ex)
         {
             Warn("Could not open Hiddify (" + ex.GetType().Name + "): " + ex.Message);
+            return false;
+        }
+    }
+
+    // Use the locally bundled, Mozilla-signed TOTP add-on when present, so
+    // the extension is available without network access on first Firefox start.
+    // Never embed TOTP secrets in any policy, file or launch argument.
+    private static bool ConfigureBundledTotp()
+    {
+        try
+        {
+            string addon = Path.Combine(FirefoxDir, "distribution", "fhg-totp.xpi");
+            if (!File.Exists(addon)) return true; // Fallback to official AMO install URL.
+
+            string checksum = addon + ".sha256";
+            if (!File.Exists(checksum)) return false;
+            string expected = File.ReadAllText(checksum)
+                .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault() ?? "";
+            string actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(addon)));
+            if (expected.Length != 64 || !string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("Bundled TOTP add-on checksum mismatch; refusing to install it.");
+                return false;
+            }
+
+            string policyPath = Path.Combine(FirefoxDir, "distribution", "policies.json");
+            var doc = JsonNode.Parse(File.ReadAllText(policyPath));
+            if (doc?["policies"] is not JsonObject policies) return false;
+            if (policies["Extensions"] is not JsonObject extSettings) return false;
+            string localUri = new Uri(addon).AbsoluteUri;
+            var installs = extSettings["Install"] as JsonArray;
+            if (installs is null) return false;
+            if (installs.Count == 1 && installs[0]?.GetValue<string>() == localUri) return true;
+            extSettings["Install"] = new JsonArray(JsonValue.Create(localUri));
+            File.WriteAllText(policyPath, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Log("Bundled TOTP extension configured for local Firefox installation (SHA256 verified).");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log("TOTP packaging verification failed (" + e.GetType().Name + "): " + e.Message);
             return false;
         }
     }

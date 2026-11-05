@@ -336,6 +336,20 @@ replace("lib/features/connection/data/connection_repository.dart",
     if (!Platform.isWindows && !Platform.isLinux) return;
     final core = singbox.core;""")
 
+# Partition each FHG account's Hiddify Core database and settings. The
+# executable, vendor program and original Hiddify data are never modified.
+# FHG_ACCOUNT_ID can contain only lowercase 32-character UUID hexadecimal.
+replace("lib/core/directories/directories_provider.dart",
+        """    return Directory(p.join(exeDir.path, 'fhg_proxy_portable_data'));""",
+        """    final id = Platform.environment['FHG_ACCOUNT_ID'];
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (id != null &&
+        RegExp(r'^[0-9a-f]{32}$').hasMatch(id) &&
+        local != null && local.isNotEmpty) {
+      return Directory(p.join(local, 'FHG', 'Accounts', id, 'HiddifyData'));
+    }
+    return Directory(p.join(exeDir.path, 'fhg_proxy_portable_data'));""")
+
 # One-time subscription import via an unguessable user-local file ticket.
 # Account password and TOTP seed are NEVER passed to Hiddify.
 replace("lib/bootstrap.dart",

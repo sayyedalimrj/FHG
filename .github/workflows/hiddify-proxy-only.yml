@@ -29,6 +29,7 @@ on:
       - 'native/guard/FHGGuard.cpp'
       - 'native/guard/test-egress.ps1'
       - 'docs/RELEASE-v0.5.2-rc.1.md'
+      - 'docs/RELEASE-v0.6.0-rc.1.md'
       - 'firefox/distribution/policies.json'
       - 'packaging/trim-firefox-safe.ps1'
       - '.github/workflows/hiddify-proxy-only.yml'
@@ -193,8 +194,8 @@ jobs:
           FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
           FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
         run: |
-          ./packaging/sign-publisher.ps1 -Controller publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe -ProxyExe vendor/build/windows/x64/runner/Release/FHGProxy.exe
-          foreach($p in @('publish-launcher/FHG.exe','build-guard/Release/FHGGuard.exe','vendor/build/windows/x64/runner/Release/FHGProxy.exe')) {
+          ./packaging/sign-publisher.ps1 -Controller publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe -ProxyExe vendor/build/windows/x64/runner/Release/FHGProxy.exe -AccountManager publish-accounts/FHGAccountManager.exe
+          foreach($p in @('publish-launcher/FHG.exe','build-guard/Release/FHGGuard.exe','vendor/build/windows/x64/runner/Release/FHGProxy.exe','publish-accounts/FHGAccountManager.exe')) {
             $sig=(Get-AuthenticodeSignature $p).Status
             Write-Host "Publisher-signing status for $p : $sig"
           }
@@ -320,6 +321,9 @@ jobs:
           Write-Host 'PASS: AI focused Firefox compact UI and safe trim applied to complete Windows bundle.'
       - name: Build and verify clean self-contained Windows FHG Setup EXE
         shell: pwsh
+        env:
+          FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
+          FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
         run: |
           choco install innosetup --no-progress -y --limit-output
           if ($LASTEXITCODE -ne 0) {throw 'Inno Setup installation failed'}
@@ -329,6 +333,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) {throw 'FHG installer compilation failed'}
           $exe='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
           if (!(Test-Path $exe)) {throw 'Standalone Setup.exe missing'}
+          if ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
+            ./packaging/sign-publisher.ps1 -Controller $exe -Guard stage/FHGGuard.exe
+          }
           $bytes=(Get-Item $exe).Length
           if ($bytes -lt 50000000) {throw "Unexpectedly small Setup.exe: $bytes"}
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -396,27 +403,23 @@ jobs:
             FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z.sha256
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
-      - name: Publish GitHub prerelease with directly downloadable ZIP
-        if: github.ref == 'refs/heads/main' && vars.FHG_RELEASE_APPROVED == 'yes'
+      - name: Publish signed and device-approved FHG Setup EXE prerelease
+        if: github.ref == 'refs/heads/main' && vars.FHG_RELEASE_APPROVED == 'yes' && vars.FHG_E2E_APPROVED == 'yes' && vars.FHG_LICENSE_APPROVED == 'yes'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          foreach($native in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Hiddify/FHGProxy.exe')) {
+          foreach($native in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Hiddify/FHGProxy.exe','stage/FHGAccountManager.exe','installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe')) {
             if ((Get-AuthenticodeSignature $native).Status -ne 'Valid') {
-              throw "Unsigned native executable: $native. Public release requires a real trusted publisher certificate."
+              throw "Unsigned FHG native executable: $native. A public release requires valid publisher Authenticode."
             }
           }
-          $tag='v0.5.2-rc.1'
-          $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip'
-          if (!(Test-Path $zip) -or !(Test-Path "$zip.sha256")) {throw 'Release assets missing'}
-          $compact='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z'
-          if (!(Test-Path $compact) -or !(Test-Path "$compact.sha256")) {throw 'Compact release assets missing'}
+          $tag='v0.6.0-rc.1'
+          $setup='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          if (!(Test-Path $setup) -or !(Test-Path "$setup.sha256")) {throw 'Signed installer files missing'}
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release $tag already exists; refusing to overwrite immutable published artifacts."
-          } else {
-            gh release create $tag $zip "$zip.sha256" $compact "$compact.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.2-rc.1 - Subscription bootstrap, WFP guard, ChatGPT and Authenticator' --notes-file docs/RELEASE-v0.5.2-rc.1.md --prerelease
-            if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}
+            throw "Release $tag already exists; refusing to replace public installer artifacts."
           }
-          if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}
+          gh release create $tag $setup "$setup.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Browser v0.6.0-rc.1 — Signed Windows Setup and Encrypted Accounts' --notes-file docs/RELEASE-v0.6.0-rc.1.md --prerelease
+          if ($LASTEXITCODE -ne 0) {throw 'Signed FHG installer release upload failed'}

@@ -550,6 +550,13 @@ internal static class Program
 
     private static void TryCreateDesktopShortcuts()
     {
+        // The signed installer already manages desktop and Start Menu links.
+        // Avoid duplicate icons under CommonDesktop after first-run elevation.
+        if (File.Exists(Path.Combine(Root, "unins000.exe")))
+        {
+            Log("FHG installer manages shortcuts; launcher will not duplicate them.");
+            return;
+        }
         // If launched with an alternate Administrator identity the per-user
         // Desktop would point to the administrator's account instead of the
         // person who requested FHG. Install to the public Desktop for that

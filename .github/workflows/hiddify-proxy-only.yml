@@ -111,7 +111,7 @@ jobs:
             throw 'FHG large subscriptions must default to all nodes without a popup'
           }
           $accounts=Get-Content native/account-manager/Program.cs -Raw
-          foreach($marker in @('UpdateAllCodes()', 'CopyCode(FhgAccount account)', 'Height = 146', 'otpTimer.Start();')) {
+          foreach($marker in @('UpdateAllCodes()', 'CopyCode(FhgAccount account)', 'Height = 190', 'otpTimer.Start();', 'CopyPassword(FhgAccount account)', 'CopySensitive(string value')) {
             if (!$accounts.Contains($marker)) {throw "FHG Accounts card and automatic live 2FA missing: $marker"}
           }
           $setup=Get-Content vendor/lib/bootstrap.dart -Raw

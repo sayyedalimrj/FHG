@@ -26,7 +26,7 @@ function Invoke-Probe([string]$binary, [int]$port, [bool]$shouldConnect, [bool]$
 }
 
 try {
-  foreach ($port in @(12334, 22334)) {
+  foreach ($port in @(12345, 22345)) {
     $jobs += Start-Job -ArgumentList $port -ScriptBlock {
       param($p)
       $server = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, [int]$p)
@@ -44,7 +44,7 @@ try {
   }
   # IPv6 loopback simulates the other address family without public internet.
   $jobs += Start-Job -ScriptBlock {
-    $server = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::IPv6Loopback, 32334)
+    $server = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::IPv6Loopback, 32345)
     $server.Start()
     try {
       while($true) {
@@ -55,24 +55,24 @@ try {
   }
   Start-Sleep -Seconds 3
   # Prove both destinations work before protection is installed.
-  Invoke-Probe $browser 12334 $true
-  Invoke-Probe $browser 22334 $true
-  Invoke-Probe $browser 32334 $true $true
+  Invoke-Probe $browser 12345 $true
+  Invoke-Probe $browser 22345 $true
+  Invoke-Probe $browser 32345 $true $true
   & $guard install $bundle
   if ($LASTEXITCODE -ne 0) { throw "WFP installation failed" }
   $installed = $true
   & $guard status $bundle
   if ($LASTEXITCODE -ne 0) { throw "WFP rule verification failed" }
-  Invoke-Probe $browser 12334 $true
-  Invoke-Probe $browser 22334 $false
-  Invoke-Probe $browser 32334 $false $true
+  Invoke-Probe $browser 12345 $true
+  Invoke-Probe $browser 22345 $false
+  Invoke-Probe $browser 32345 $false $true
   # Targeting must not modify an unrelated executable.
-  Invoke-Probe $outside 22334 $true
-  Invoke-Probe $outside 32334 $true $true
+  Invoke-Probe $outside 22345 $true
+  Invoke-Probe $outside 32345 $true $true
   # Simulate a proxy outage: browser remains running and cannot use an alternate route.
   Stop-Job $jobs[0] -ErrorAction Stop
-  Invoke-Probe $browser 12334 $false
-  Invoke-Probe $browser 22334 $false
+  Invoke-Probe $browser 12345 $false
+  Invoke-Probe $browser 22345 $false
   Write-Host "WFP IPv4/IPv6 loopback isolation checks PASS (not a full browser leak test)."
 } finally {
   if ($installed) {

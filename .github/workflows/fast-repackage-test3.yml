@@ -50,8 +50,8 @@ jobs:
           $base = Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0-preview.exe'
           $install = Join-Path $env:RUNNER_TEMP 'FHGBaselineStage'
           New-Item -ItemType Directory -Path $install -Force | Out-Null
-          & $base '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART' '/SP-' "/DIR=$install"
-          if ($LASTEXITCODE -ne 0) { throw "Baseline installer failed: $LASTEXITCODE" }
+          $baselineResult = Start-Process -FilePath $base -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$install))
+          if ($baselineResult.ExitCode -ne 0) { throw "Baseline installer failed: $($baselineResult.ExitCode)" }
           foreach ($required in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','Firefox/firefox.exe','Hiddify/FHGProxy.exe','licenses/Hiddify-LICENSE.md')) {
             if (!(Test-Path (Join-Path $install $required))) { throw "Missing baseline file: $required" }
           }
@@ -79,8 +79,8 @@ jobs:
           $out='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
           if (!(Test-Path $out)) { throw 'Installer is missing' }
           $destination=Join-Path $env:RUNNER_TEMP 'FHGTest3Installed'
-          & $out '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART' '/SP-' "/DIR=$destination"
-          if ($LASTEXITCODE -ne 0) { throw 'Smoke-test installation failed' }
+          $setupResult = Start-Process -FilePath (Resolve-Path $out).Path -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$destination))
+          if ($setupResult.ExitCode -ne 0) { throw "Smoke-test installation failed: $($setupResult.ExitCode)" }
           foreach ($required in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','Firefox/firefox.exe','Hiddify/FHGProxy.exe','licenses/Hiddify-LICENSE.md')) {
             if (!(Test-Path (Join-Path $destination $required))) { throw "Missing installed file: $required" }
           }

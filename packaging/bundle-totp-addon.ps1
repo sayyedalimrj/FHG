@@ -10,8 +10,8 @@ if((Split-Path -Path $root -Leaf) -ne 'Firefox' -or
     throw 'TOTP bundling is restricted to the extracted FHG Firefox distribution.'
 }
 $distribution=Join-Path $root 'distribution'
-$dest=Join-Path $distribution 'fhg-totp.xpi'
-$url='https://addons.mozilla.org/firefox/downloads/latest/totp/latest.xpi'
+$dest=Join-Path $distribution 'fhg-authenticator.xpi'
+$url='https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi'
 $sevenZip='C:\Program Files\7-Zip\7z.exe'
 if(!(Test-Path $sevenZip)){throw '7-Zip required for XPI inspection'}
 $success=$false
@@ -21,7 +21,7 @@ for($attempt=1; $attempt -le 5; $attempt++){
         & curl.exe -fSL --retry 2 --retry-all-errors --connect-timeout 20 --max-time 120 -o $dest $url
         if($LASTEXITCODE -ne 0){throw "AMO download failed ($LASTEXITCODE)"}
         $length=(Get-Item $dest).Length
-        if($length -lt 4000 -or $length -gt 2000000){throw "Unexpected TOTP XPI length: $length"}
+        if($length -lt 4000 -or $length -gt 5000000){throw "Unexpected TOTP XPI length: $length"}
         & $sevenZip t $dest | Out-Null
         if($LASTEXITCODE -ne 0){throw 'Not a valid XPI ZIP'}
         Add-Type -AssemblyName System.IO.Compression
@@ -32,12 +32,12 @@ for($attempt=1; $attempt -le 5; $attempt++){
             $reader=[IO.StreamReader]::new($entry.Open())
             try {$manifest=$reader.ReadToEnd() | ConvertFrom-Json}
             finally {$reader.Dispose()}
-            $name=[string]$manifest.name
-            if($name -notmatch 'TOTP'){throw "Unexpected add-on manifest: $name"}
-            if($manifest.content_scripts -or ($manifest.permissions -contains '<all_urls>') -or
-                ($manifest.permissions -contains 'webRequest') -or
-                ($manifest.host_permissions -and $manifest.host_permissions.Count -gt 0)){
-                throw 'Unexpected broad website permissions; add-on requires review'
+            $id=[string]$manifest.browser_specific_settings.gecko.id
+            if($id -ne 'authenticator@mymindstorm'){throw "Unexpected authenticator ID: $id"}
+            if(($manifest.permissions -contains '<all_urls>') -or
+                ($manifest.host_permissions -contains '<all_urls>') -or
+                ($manifest.permissions -contains 'webRequest')){
+                throw 'Unexpected broad content permissions; needs human review'
             }
             $names=@($zip.Entries | ForEach-Object {$_.FullName})
             if(-not ($names | Where-Object {$_ -match '^META-INF/.*\.(rsa|sf)$'})){
@@ -45,8 +45,8 @@ for($attempt=1; $attempt -le 5; $attempt++){
             }
         } finally {$zip.Dispose()}
         $hash=(Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash.ToLowerInvariant()
-        [IO.File]::WriteAllText(($dest+'.sha256'),($hash+'  fhg-totp.xpi'+[Environment]::NewLine),[Text.Encoding]::ASCII)
-        Write-Host "PASS: bundled Mozilla TOTP add-on ($length bytes), SHA256 $hash"
+        [IO.File]::WriteAllText(($dest+'.sha256'),($hash+'  fhg-authenticator.xpi'+[Environment]::NewLine),[Text.Encoding]::ASCII)
+        Write-Host "PASS: bundled signed Authenticator by mymindstorm ($length bytes), SHA256 $hash"
         $success=$true
         break
     } catch {
@@ -56,5 +56,5 @@ for($attempt=1; $attempt -le 5; $attempt++){
     }
 }
 if(-not $success){
-    Write-Warning 'Offline TOTP was not bundled. Official Mozilla AMO install policy remains active after the proxy connects.'
+    throw 'Offline Authenticator not available; refusing to publish an incomplete FHG package.'
 }

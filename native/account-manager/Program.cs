@@ -87,7 +87,7 @@ internal sealed class AccountsWindow : Form
             WrapContents = true, AutoScroll = true
         };
         actions.Controls.Add(Action("Add account file", Add, 154));
-        actions.Controls.Add(Action("Activate & open", Activate, 156));
+        actions.Controls.Add(Action("Activate & open", ActivateAccount, 156));
         actions.Controls.Add(Action("Edit subscription", EditSubscription, 159));
         actions.Controls.Add(Action("Open proxy", OpenProxy, 115));
         actions.Controls.Add(Action("Show 2FA code", ShowOtp, 136));
@@ -185,10 +185,10 @@ internal sealed class AccountsWindow : Form
             "Account archived locally. Activate it and import its subscription now?\n\n" +
             "Close any running FHG Proxy and FHG Firefox instances before switching.",
             "Activate account", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
-            == DialogResult.Yes) Activate();
+            == DialogResult.Yes) ActivateAccount();
     }
 
-    private void Activate()
+    private void ActivateAccount()
     {
         var a = Selected();
         var prior = AccountVault.ActiveId();
@@ -219,7 +219,8 @@ internal sealed class AccountsWindow : Form
                 ticket = AccountVault.MakeSubscriptionTicket(a);
                 starter.Environment["FHG_SETUP_SUB_TICKET"] = ticket;
             }
-            Process.Start(starter) ?? throw new InvalidOperationException("Could not launch FHG.");
+            if (Process.Start(starter) is null)
+                throw new InvalidOperationException("Could not launch FHG.");
             hint.Text = "Opening: " + a.Label + " — Firefox remains guarded and requires a working SOCKS5 proxy.";
         }
         catch

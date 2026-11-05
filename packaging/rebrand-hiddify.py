@@ -429,6 +429,50 @@ Future<void> _fhgOneTimeSubscription(ProviderContainer container) async {
 '''
 bootstrap.write_text(source, encoding="utf-8", newline="\n")
 print("BRAND lib/bootstrap.dart — one-time private subscription import")
+# FHG is an unattended proxy-only product. A subscription of 24+ nodes
+# must NEVER interrupt activation with the upstream "A big subscription"
+# modal. Preserve the user's explicit later choices, but ignore vendor
+# keep-top headers by default and persist "use all" for new big profiles.
+replace("lib/features/proxy/keep_top/keep_top.dart",
+        "  int get keepTop => userOverride?.keepTop ?? keepTopHeader ?? -1;",
+        "  int get keepTop => userOverride?.keepTop ?? -1;")
+replace("lib/features/proxy/keep_top/keep_top.dart",
+        "  bool get keepTopDecided => userOverride?.keepTop != null || keepTopHeader != null || keepTags.isNotEmpty;",
+        "  bool get keepTopDecided => userOverride?.keepTop != null || keepTags.isNotEmpty;")
+keep_file = root / "lib/features/proxy/keep_top/keep_top.dart"
+keep_source = keep_file.read_text(encoding="utf-8")
+start = keep_source.index("  /// Asks, once for each profile, whether a big [profile] runs only its fastest proxies.")
+end_marker = "\n  }\n}"
+end = keep_source.index(end_marker, start) + len("\n  }")
+keep_body = r'''  /// FHG: choose ALL nodes without ever interrupting automated activation.
+  /// The user can still manually change the choice later in the proxy list.
+  Future<void> askIfBig(ProfileEntity? profile) async {
+    if (profile == null || profile.keepTopDecided || !_asking.add(profile.id)) return;
+    try {
+      final count = await readProxyCount(ref.read(profilePathResolverProvider).file(profile.id));
+      if (count <= bigProfileProxies) return;
+      final fetched = await ref.read(profileRepositoryProvider).requireValue.getById(profile.id).run();
+      final current = fetched.toNullable() ?? profile;
+      if (current.keepTopDecided) return;
+      final updated = (current.userOverride ?? const UserOverride()).copyWith(
+        keepTop: -1,
+        keepTags: null,
+      );
+      final saved = await ref.read(profileRepositoryProvider).requireValue
+          .setUserOverride(current.id, updated).run();
+      if (saved.isLeft()) {
+        loggy.warning('FHG could not persist all-nodes default for the subscription');
+      } else {
+        loggy.debug('FHG automatically selected all nodes for a big subscription');
+      }
+    } catch (error, stackTrace) {
+      loggy.warning('FHG could not set all-nodes default', error, stackTrace);
+    } finally {
+      _asking.remove(profile.id);
+    }
+  }'''
+keep_file.write_text(keep_source[:start] + keep_body + keep_source[end:], encoding="utf-8", newline="\n")
+print("BRAND keep_top.dart: no large-subscription modal; all nodes default")
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

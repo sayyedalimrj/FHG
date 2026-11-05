@@ -1,7 +1,7 @@
 // FHG Windows startup bridge: delegates all subscriptions, nodes, quota and latency UI
-// to the UNMODIFIED official Hiddify Windows Portable application.
+// to the source-modified, separately identified FHG Proxy Windows application.
 // FHG only enforces browser-local Firefox policy + the path-scoped WFP guard.
-// No Hiddify Core CLI, no custom profile parser, and no duplicate proxy GUI.
+// No separate CLI UI or custom profile parser; the FHG Proxy GUI owns subscriptions.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -29,7 +29,7 @@ internal static class Program
         }
         catch { /* logging must not bypass any network protection */ }
     }
-    private static readonly string HiddifyExe = Path.Combine(Root, "Hiddify", "Hiddify.exe");
+    private static readonly string HiddifyExe = Path.Combine(Root, "Hiddify", "FHGProxy.exe");
     private static readonly string ProfileDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                      "FHG", "FirefoxProfile");
@@ -43,7 +43,7 @@ internal static class Program
         {
             if (!File.Exists(HiddifyExe))
             {
-                Warn("The original Hiddify interface is missing.\n\nExtract the COMPLETE FHG ZIP, including the Hiddify folder.");
+                Warn("The dedicated FHG Proxy interface is missing.\n\nExtract the COMPLETE FHG ZIP, including the Hiddify folder.");
                 return 2;
             }
 
@@ -104,7 +104,7 @@ internal static class Program
             // A normal installed Hiddify elsewhere on the PC is NOT used or modified.
             // If the bundled instance is already running, leave it alive.
             string expected = Path.GetFullPath(HiddifyExe);
-            bool alreadyRunning = Process.GetProcessesByName("Hiddify").Any(p =>
+            bool alreadyRunning = Process.GetProcessesByName("FHGProxy").Any(p =>
             {
                 try { return string.Equals(Path.GetFullPath(p.MainModule?.FileName ?? ""),
                                           expected, StringComparison.OrdinalIgnoreCase); }
@@ -112,6 +112,16 @@ internal static class Program
                 finally { p.Dispose(); }
             });
             if (alreadyRunning) return true;
+
+            // Do not try to bind a port already used by the user's regular Hiddify.
+            // If it is occupied, fail closed before Firefox can be started.
+            if (System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners().Any(endpoint => endpoint.Port == 12345))
+            {
+                Warn("Local port 12345 is already in use. FHG Proxy will not start. " +
+                     "Close only the app owning that port or choose another installation.");
+                return false;
+            }
 
             using var child = Process.Start(new ProcessStartInfo(HiddifyExe)
             {
@@ -141,7 +151,7 @@ internal static class Program
             var proxy = parsed.RootElement.GetProperty("policies").GetProperty("Proxy");
             return proxy.GetProperty("Mode").GetString() == "manual"
                 && proxy.GetProperty("Locked").GetBoolean()
-                && proxy.GetProperty("SOCKSProxy").GetString() == "127.0.0.1:12334"
+                && proxy.GetProperty("SOCKSProxy").GetString() == "127.0.0.1:12345"
                 && proxy.GetProperty("SOCKSVersion").GetInt32() == 5
                 && proxy.GetProperty("UseProxyForDNS").GetBoolean()
                 && proxy.GetProperty("Passthrough").GetString() == "";

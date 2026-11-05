@@ -1,4 +1,4 @@
-name: FHG with original Hiddify UI (Windows x64)
+name: ARCHIVED DO NOT BUILD - legacy unpatched Hiddify bundle
 on:
   push:
     paths:
@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   build:
+    # This legacy workflow is quarantined: do not produce user-facing artifacts.
+    if: ${{ false }}
     runs-on: windows-2022
     permissions:
       contents: read
@@ -90,9 +92,10 @@ jobs:
           if-no-files-found: error
 
   release:
+    # Old releases are historical only, never automatically republished.
+    if: ${{ false }}
     name: Release FHG with original Hiddify GUI
     needs: [build]
-    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v0.4.0-alpha.1') }}"
     runs-on: ubuntu-latest
     permissions:
       contents: write

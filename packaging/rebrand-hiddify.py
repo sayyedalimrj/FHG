@@ -188,6 +188,80 @@ replace("Makefile",
         "curl -L $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/",
         "curl -fSL --retry 8 --retry-all-errors --retry-delay 6 --connect-timeout 25 --max-time 420 $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/")
 
+# Original author's translated common title is still "Hiddify 5.5.5" on the
+# home screen even after branding the EXE/icon. Keep upstream version accurate.
+replace("lib/features/home/widget/home_page.dart",
+        "TextSpan(text: t.common.appTitle),",
+        "const TextSpan(text: 'FHG Proxy'),")
+
+# FHG subscription fetches may use only the user-approved loopback:12334
+# bootstrap. This DOES NOT change Firefox (which always uses guarded :12345).
+replace("lib/core/http_client/dio_http_client.dart",
+        """          final client = HttpClient()..userAgent = userAgent;
+          client.findProxy = (url) {""",
+        """          final client = HttpClient()..userAgent = userAgent;
+          final bootstrap = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] ?? '';
+          final safeBootstrap = RegExp(r'^127\.0\.0\.1:12334$').hasMatch(bootstrap);
+          client.findProxy = (url) {""")
+replace("lib/core/http_client/dio_http_client.dart",
+        """            } else if (mode == "direct") {
+              return "DIRECT";
+            } else {
+              return "PROXY $proxy; DIRECT";
+            }""",
+        """            } else if (mode == "direct") {
+              return safeBootstrap ? "PROXY $bootstrap" : "DIRECT";
+            } else {
+              // No direct fallback when the user's FHG proxy is active.
+              return "PROXY $proxy";
+            }""")
+replace("lib/core/http_client/dio_http_client.dart",
+        """  Future<bool> isPortOpen(String host, int port, {Duration timeout = const Duration(seconds: 5)}) async {
+    try {""",
+        """  Future<bool> isPortOpen(String host, int port, {Duration timeout = const Duration(seconds: 5)}) async {
+    if (port <= 0 || port > 65535) return false;
+    try {""")
+
+# Remote subscriptions can be unreachable before proxy connection. The import
+# must time out (rather than spin forever), with sanitized failure messages.
+replace("lib/features/profile/data/profile_parser.dart",
+        "import 'dart:convert';",
+        "import 'dart:async';\nimport 'dart:convert';")
+replace("lib/features/profile/data/profile_parser.dart",
+        """    final rs = await _httpClient
+        .download(
+          url.trim(),
+          tempFilePath,
+          cancelToken: cancelToken,
+        )
+        .catchError((err) {
+          if (CancelToken.isCancel(err as DioException)) {
+            throw const ProfileFailure.cancelByUser('HTTP request for getting profile content canceled by user.');
+          }
+          throw err;
+        });""",
+        """    final token = cancelToken ?? CancelToken();
+    late final Response rs;
+    try {
+      rs = await _httpClient.download(
+        url.trim(),
+        tempFilePath,
+        cancelToken: token,
+      ).timeout(const Duration(seconds: 40), onTimeout: () {
+        token.cancel('FHG subscription fetch timed out');
+        throw const ProfileFailure.invalidUrl(
+          'Subscription download timed out. Enable a trusted local bootstrap proxy or import a local config.',
+        );
+      });
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        throw const ProfileFailure.cancelByUser('Subscription download was canceled.');
+      }
+      // Do not expose DioException URLs; they can contain subscription tokens.
+      throw const ProfileFailure.invalidUrl(
+        'Subscription could not be downloaded. Check proxy connection or use local import.',
+      );
+    }""")
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

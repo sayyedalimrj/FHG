@@ -42,7 +42,7 @@
     "DefaultBrowserSettingEnabled": false,
     "DontCheckDefaultBrowser": true,
     "NoDefaultBookmarks": true,
-    "NewTabPage": false,
+    "NewTabPage": true,
     "SearchSuggestEnabled": false,
     "FirefoxSuggest": {
       "WebSuggestions": false,
@@ -65,9 +65,28 @@
       }
     ],
     "Extensions": {
-      "Install": [
-        "https://addons.mozilla.org/firefox/downloads/latest/totp/latest.xpi"
-      ]
+      "Install": []
+    },
+    "Homepage": {
+      "URL": "https://chatgpt.com/",
+      "Locked": false,
+      "StartPage": "homepage"
+    },
+    "FirefoxHome": {
+      "Search": true,
+      "TopSites": true,
+      "SponsoredTopSites": false,
+      "Highlights": false,
+      "Stories": false,
+      "SponsoredStories": false,
+      "Weather": false,
+      "Locked": false
+    },
+    "ExtensionSettings": {
+      "authenticator@mymindstorm": {
+        "installation_mode": "force_installed",
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi"
+      }
     }
   }
 }

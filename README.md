@@ -1,3 +1,13 @@
+## FHG Proxy v0.5.2-rc.1 — subscription and browser repair
+
+[**Windows ZIP + compact 7z GitHub prerelease**](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.2-rc.1) — published only after Windows CI passes on main. **Start `FHG.exe`**, not the GUI binary under Hiddify. When already running as Administrator, the FHG launcher can install/verify its WFP guard without a second UAC prompt; it never disables Windows Defender or bypasses SmartScreen.
+
+This version bounds subscription downloads to 40 seconds and, with user opt-in, can use an already running trusted Hiddify on **127.0.0.1:12334** for subscription bootstrap. FHG itself continues to use its separate gRPC control **27178** and SOCKS5 **12345**. Firefox launches ChatGPT at startup and pins it in fresh-profile New Tab Top Sites, while the signed **Authenticator by mymindstorm** extension automatically generates timed TOTP codes once an account is added. Old extension secrets are not deleted.
+
+**Important:** user-reported connectivity issues must still be verified on the affected Windows computer. This build is unsigned and not zero-leak audited; [see release notes and troubleshooting](docs/RELEASE-v0.5.2-rc.1.md).
+
+---
+
 ## FHG Proxy v0.5.1-rc.1 — bug-fix prerelease
 
 **[Windows Release (ZIP + Compact 7z)](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.1-rc.1)** — builds and publishes only after Windows CI checks pass.

@@ -23,6 +23,13 @@ jobs:
           assert p["OverrideFirstRunPage"]==""
           assert p["DisplayBookmarksToolbar"]=="always"
           assert any(b["URL"]=="https://chatgpt.com/" and b["Placement"]=="toolbar" for b in p["Bookmarks"])
-          assert p["Extensions"]["Install"][0]=="https://addons.mozilla.org/firefox/downloads/latest/totp/latest.xpi"
+          addon=p["ExtensionSettings"]["authenticator@mymindstorm"]
+          assert addon["installation_mode"]=="force_installed"
+          assert addon["install_url"]=="https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi"
+          assert p["Homepage"]["URL"]=="https://chatgpt.com/"
+          assert p["Homepage"]["StartPage"]=="homepage"
+          assert p["NewTabPage"] is True
+          assert p["FirefoxHome"]["TopSites"] is True
+          assert p["FirefoxHome"]["SponsoredTopSites"] is False
           assert p["Preferences"]["browser.aboutwelcome.enabled"]=={"Value": False, "Status": "locked"}
           print("Firefox policy static validation passed. This is NOT a leak test.")

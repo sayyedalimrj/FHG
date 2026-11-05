@@ -13,7 +13,7 @@ on:
       - 'native/original-ui/FHG.csproj'
       - 'native/guard/FHGGuard.cpp'
       - 'native/guard/test-egress.ps1'
-      - 'docs/RELEASE-v0.5.1-rc.1.md'
+      - 'docs/RELEASE-v0.5.2-rc.1.md'
       - 'firefox/distribution/policies.json'
       - 'packaging/trim-firefox-safe.ps1'
       - '.github/workflows/hiddify-proxy-only.yml'
@@ -70,7 +70,13 @@ jobs:
           if (!$grpc.Contains('super(port: 27178)') -or $grpc.Contains('super(port: 17078)')) {throw 'Hiddify internal gRPC still conflicts with normal Hiddify'}
           if (!$bootstrap.Contains("fhg_english_default_initialized")) {throw 'FHG English first-launch migration absent'}
           if (!$core.Contains("FHG Proxy engine has not initialized")) {throw 'Missing fail-safe profile import diagnostic'}
-          Write-Host 'PASS: independent control RPC 27178, English migration and failed-core error handling'
+          $http=Get-Content vendor/lib/core/http_client/dio_http_client.dart -Raw
+          $parser=Get-Content vendor/lib/features/profile/data/profile_parser.dart -Raw
+          $fhgHomeSource=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw
+          if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";')) {throw 'User-approved proxy bootstrap or no-direct-fallback protection missing'}
+          if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
+          if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
+          Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0
         with:
@@ -168,7 +174,7 @@ jobs:
           Copy-Item packaging/rebrand-hiddify.py stage/FHG-REBRAND-SOURCE.py
           Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
-          Copy-Item docs/RELEASE-v0.5.1-rc.1.md stage/RELEASE-NOTES.md
+          Copy-Item docs/RELEASE-v0.5.2-rc.1.md stage/RELEASE-NOTES.md
           Copy-Item vendor/LICENSE.md stage/HIDDIFY-LICENSE.md
           $sig=Get-AuthenticodeSignature stage/Hiddify/FHGProxy.exe
           Write-Host 'Patched Hiddify signature status:' $sig.Status
@@ -181,26 +187,29 @@ jobs:
           Copy-Item firefox/distribution/policies.json stage/Firefox/distribution/policies.json -Force
           ./packaging/trim-firefox-safe.ps1 -FirefoxDirectory stage/Firefox
           ./packaging/bundle-totp-addon.ps1 -FirefoxDirectory stage/Firefox
-          Write-Host 'Mozilla TOTP add-on: local signed XPI included if AMO download validated.'
+          if (!(Test-Path stage/Firefox/distribution/fhg-authenticator.xpi) -or !(Test-Path stage/Firefox/distribution/fhg-authenticator.xpi.sha256)) {throw 'Signed offline Authenticator missing'}
+          Write-Host 'PASS: locally bundled and SHA-checked Authenticator signed extension present.'
           $p=Get-Content 'stage/Firefox/distribution/policies.json' -Raw | ConvertFrom-Json
           if ($p.policies.Proxy.SOCKSProxy -ne '127.0.0.1:12345' -or
               !$p.policies.Proxy.Locked -or !$p.policies.Proxy.UseProxyForDNS -or
               !$p.policies.DisableAppUpdate) {throw 'Firefox proxy or update lock weakened'}
-          if ($p.policies.NewTabPage -ne $false -or
+          if ($p.policies.NewTabPage -ne $true -or
               !$p.policies.DisableFirefoxAccounts) {throw 'AI-oriented Firefox defaults missing'}
           if ($p.policies.OverrideFirstRunPage -ne '' -or
               $p.policies.SkipTermsOfUse -ne $true -or
               $p.policies.RequestedLocales[0] -ne 'en-US' -or
               $p.policies.Bookmarks[0].URL -ne 'https://chatgpt.com/' -or
               $p.policies.DisplayBookmarksToolbar -ne 'always') {throw 'FHG English/Firefox onboarding/ChatGPT bookmark policy missing'}
-          if ($p.policies.Extensions.Install[0] -notmatch 'addons.mozilla.org/firefox/downloads/latest/totp/') {throw 'Official TOTP auto-install policy missing'}
-          Write-Host 'PASS: Firefox first-run, bookmark and TOTP policies verified.'
+          if ($p.policies.ExtensionSettings.'authenticator@mymindstorm'.installation_mode -ne 'force_installed' -or
+              $p.policies.Homepage.URL -ne 'https://chatgpt.com/' -or
+              $p.policies.FirefoxHome.TopSites -ne $true) {throw 'Automatic Authenticator or ChatGPT Top Sites policy missing'}
+          Write-Host 'PASS: Firefox first run, ChatGPT Home/Top Sites and signed Authenticator policy verified.'
           Write-Host 'PASS: AI focused Firefox compact UI and safe trim applied to complete Windows bundle.'
       - name: Package complete offline test artifact
         shell: pwsh
         run: |
           $z='C:\Program Files\7-Zip\7z.exe'
-          $filename='FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1.zip'
+          $filename='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip'
           $target=Join-Path (Get-Location) $filename
           Push-Location stage
           try {
@@ -214,7 +223,7 @@ jobs:
           Write-Host "PASS: ZIP integrity. SHA256 $hash"
           # Solid LZMA2 gives a materially smaller *distribution* without
           # deleting Firefox engine files or changing on-disk signed binaries.
-          $compact='FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1-Compact.7z'
+          $compact='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z'
           $cTarget=Join-Path (Get-Location) $compact
           Push-Location stage
           try {
@@ -232,12 +241,12 @@ jobs:
           if ($smaller -ge $regular) {throw 'Compact distribution did not achieve any size reduction'}
       - uses: actions/upload-artifact@v4
         with:
-          name: FHG-ProxyOnly-12345-Windows-x64-rc1
+          name: FHG-ProxyOnly-12345-Windows-x64-rc2
           path: |
-            FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1.zip
-            FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1.zip.sha256
-            FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1-Compact.7z
-            FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1-Compact.7z.sha256
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip.sha256
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z.sha256
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
       - name: Publish GitHub prerelease with directly downloadable ZIP
@@ -246,16 +255,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag='v0.5.1-rc.1'
-          $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1.zip'
+          $tag='v0.5.2-rc.1'
+          $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip'
           if (!(Test-Path $zip) -or !(Test-Path "$zip.sha256")) {throw 'Release assets missing'}
-          $compact='FHG-ProxyOnly-12345-Windows-x64-v0.5.1-rc.1-Compact.7z'
+          $compact='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z'
           if (!(Test-Path $compact) -or !(Test-Path "$compact.sha256")) {throw 'Compact release assets missing'}
           gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             Write-Host "Release $tag already exists; refusing to overwrite immutable published artifacts."
           } else {
-            gh release create $tag $zip "$zip.sha256" $compact "$compact.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.1-rc.1 - Core collision fix + Firefox setup' --notes-file docs/RELEASE-v0.5.1-rc.1.md --prerelease
+            gh release create $tag $zip "$zip.sha256" $compact "$compact.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.2-rc.1 - Subscription bootstrap, WFP guard, ChatGPT and Authenticator' --notes-file docs/RELEASE-v0.5.2-rc.1.md --prerelease
             if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}
           }
           if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}

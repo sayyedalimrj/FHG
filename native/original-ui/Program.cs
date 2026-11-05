@@ -225,19 +225,21 @@ internal static class Program
     {
         try
         {
-            // Initial pinned top-site preference, non-destructive for existing user.js.
+            // The first-run preference is non-destructive for an existing user.js.
             string userJs = Path.Combine(ProfileDir, "user.js");
-            if (!File.Exists(userJs))
+            if (File.Exists(userJs)) return;
+            string pinned = JsonSerializer.Serialize(new[]
             {
-                string pinned = "[{\\\"url\\\":\\\"https://chatgpt.com/\\\",\\\"label\\\":\\\"ChatGPT\\\"}]";
-                File.WriteAllText(userJs,
-                    "user_pref(\\"browser.newtabpage.pinned\\", \\"" + pinned + "\\");" + Environment.NewLine);
-                Log("ChatGPT pinned to the Firefox new tab page for a fresh FHG profile.");
-            }
+                new { url = "https://chatgpt.com/", label = "ChatGPT" }
+            });
+            File.WriteAllText(userJs,
+                "user_pref(\"browser.newtabpage.pinned\", " +
+                JsonSerializer.Serialize(pinned) + ");" + Environment.NewLine);
+            Log("Created ChatGPT pinned New Tab tile for a fresh FHG profile.");
         }
         catch (Exception e)
         {
-            Log("ChatGPT start tile setup failed: " + e.Message);
+            Log("ChatGPT New Tab setup failed: " + e.Message);
         }
     }
 

@@ -1,3 +1,17 @@
+## FHG v0.4 — Original Hiddify UI (replaces the custom WPF subscription screen)
+
+**[Download v0.4.0-alpha.1 from GitHub Releases](https://github.com/sayyedalimrj/FHG/releases/tag/v0.4.0-alpha.1)**
+
+The FHG WPF subscription dashboard in v0.2/v0.3 was incomplete. The distributed v0.4 application **does not use it**. Instead, FHG starts the **official, unmodified Hiddify v5.5.5 Windows Portable GUI**, with its actual subscription cards, remaining data, node lists, test latency, renewal and selection features. FHG's own launcher just starts the vendor GUI and a Firefox browser isolated by the Windows network guard. [Source](native/original-ui/Program.cs) / [bundle script](packaging/build-original-ui.ps1) / [release notes](docs/RELEASE-v0.4.0-alpha.1.md).
+
+**Crucial first-run setting:** In the Hiddify UI choose **Service mode: Proxy (local proxy only)**, not System Proxy or VPN/TUN. On desktop Hiddify normally defaults to System Proxy, which would affect other apps. Configure mixed SOCKS5 on **127.0.0.1:12334** and connect with the original Hiddify UI. Firefox runs through that port; when disconnected, Firefox tabs remain open and online requests should fail.
+
+The v0.4 WFP provider has a **separate identity** from v0.2/v0.3 so new guard installation does not delete older releases' firewall filters. No source code or resources of Hiddify's vendor GUI are changed. All upstream attribution, license obligations and commercial restrictions remain applicable.
+
+**This is still an experimental alpha**. Browser-to-Hiddify local-network filtering has been synthetic-tested on Windows, but Hiddify Core DIRECT routing, live user-PC packet capture, local port takeover and end-to-end leak-free operation have **not** been verified. The FHG executables are unsigned without a genuine publisher code-signing certificate.
+
+---
+
 # FHG — Firefox + Hiddify Secure Browser (experimental alpha)
 
 **Status: a Windows x64 offline build exists. It is NOT certified leak-free or production-ready.**

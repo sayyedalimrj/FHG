@@ -298,6 +298,9 @@ jobs:
       - name: Slim isolated FHG Firefox safely for AI websites
         shell: pwsh
         run: |
+          # The native-core smoke test produces temporary data and logs.
+          # Never redistribute these database/log files in a fresh install.
+          Remove-Item stage/Hiddify/fhg_proxy_portable_data -Recurse -Force -ErrorAction SilentlyContinue
           Copy-Item firefox/distribution/policies.json stage/Firefox/distribution/policies.json -Force
           ./packaging/trim-firefox-safe.ps1 -FirefoxDirectory stage/Firefox
           ./packaging/bundle-totp-addon.ps1 -FirefoxDirectory stage/Firefox
@@ -361,11 +364,21 @@ jobs:
           $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           [IO.File]::WriteAllText(($exe+'.sha256'),($hash+'  FHG-Setup-Windows-x64-0.6.0-preview.exe'+[Environment]::NewLine),[Text.Encoding]::ASCII)
           Write-Host "PASS: self-contained FHG Setup EXE: $bytes bytes SHA256 $hash"
-          $dest=Join-Path $env:RUNNER_TEMP 'FHG installer smoke'
-          & (Resolve-Path $exe).Path '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART' ('/DIR='+$dest)
-          if ($LASTEXITCODE -ne 0) {throw "Installer silent test failed: $LASTEXITCODE"}
+          # Use a destination without spaces and wait for the Setup child
+          # process to finish; an immediate & exe return alone is not proof
+          # that Inno Setup completed extraction.
+          $dest=Join-Path $env:RUNNER_TEMP 'FHGInstallerSmoke'
+          $log=Join-Path $env:RUNNER_TEMP 'FHGInstallerSmoke.log'
+          $installer = Start-Process -FilePath (Resolve-Path $exe).Path -PassThru -Wait -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',("/DIR="+$dest),("/LOG="+$log))
+          if ($installer.ExitCode -ne 0) {
+            if (Test-Path $log) {Get-Content $log -Tail 90}
+            throw "Installer silent test failed: exit code $($installer.ExitCode)"
+          }
           foreach($p in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','Hiddify/FHGProxy.exe','Firefox/firefox.exe','licenses/Hiddify-LICENSE.md')){
-            if (!(Test-Path (Join-Path $dest $p))) {throw "Missing installed file: $p"}
+            if (!(Test-Path (Join-Path $dest $p))) {
+              if (Test-Path $log) {Get-Content $log -Tail 90}
+              throw "Missing installed file: $p in $dest"
+            }
           }
           if ((Get-ChildItem $dest -Recurse -File | Where-Object { $_.Extension -in '.py','.pyc','.pdb' } | Measure-Object).Count -gt 0){
             throw 'Developer source files leaked into installed app tree'

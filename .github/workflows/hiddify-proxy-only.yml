@@ -72,10 +72,10 @@ jobs:
           if (!$core.Contains("FHG Proxy engine has not initialized")) {throw 'Missing fail-safe profile import diagnostic'}
           $http=Get-Content vendor/lib/core/http_client/dio_http_client.dart -Raw
           $parser=Get-Content vendor/lib/features/profile/data/profile_parser.dart -Raw
-          $home=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw
+          $fhgHomeSource=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw
           if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";')) {throw 'User-approved proxy bootstrap or no-direct-fallback protection missing'}
           if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
-          if (!$home.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
+          if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
           Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0

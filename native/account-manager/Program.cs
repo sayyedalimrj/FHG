@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -17,258 +18,447 @@ internal static class Program
 
 internal sealed class AccountsWindow : Form
 {
-    private readonly ListBox list = new()
-    {
-        Font = new Font("Segoe UI", 11f),
-        Dock = DockStyle.Fill,
-        BorderStyle = BorderStyle.None,
-        IntegralHeight = false
-    };
-    private readonly Label hint = new()
-    {
-        Dock = DockStyle.Fill,
-        Font = new Font("Segoe UI", 10f),
-        ForeColor = Color.FromArgb(55, 69, 84),
-        TextAlign = ContentAlignment.MiddleLeft
-    };
-    private readonly Label otp = new()
+    private static readonly Color Navy = Color.FromArgb(14, 28, 48);
+    private static readonly Color Ink = Color.FromArgb(28, 44, 66);
+    private static readonly Color Muted = Color.FromArgb(103, 119, 139);
+    private static readonly Color Surface = Color.FromArgb(244, 247, 251);
+    private static readonly Color Border = Color.FromArgb(220, 228, 238);
+    private static readonly Color Accent = Color.FromArgb(33, 121, 222);
+    private static readonly Color Mint = Color.FromArgb(18, 154, 122);
+    private static readonly Font NameFont = new("Segoe UI", 13f, FontStyle.Bold);
+    private static readonly Font CodeFont = new("Consolas", 20f, FontStyle.Bold);
+    private static readonly Font SmallFont = new("Segoe UI", 9f);
+    private static readonly Font SmallBoldFont = new("Segoe UI", 9f, FontStyle.Bold);
+
+    private readonly FlowLayoutPanel cards = new()
     {
         Dock = DockStyle.Fill,
-        Font = new Font("Consolas", 15f, FontStyle.Bold),
-        ForeColor = Color.FromArgb(0, 125, 120),
-        TextAlign = ContentAlignment.MiddleLeft
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoScroll = true,
+        Padding = new Padding(18, 14, 18, 12),
+        BackColor = Surface
     };
+    private readonly Label subtitle = new()
+    {
+        AutoSize = false, ForeColor = Color.FromArgb(178, 196, 215),
+        Font = new Font("Segoe UI", 10f)
+    };
+    private readonly Label status = new()
+    {
+        AutoSize = false, Font = new Font("Segoe UI", 9.3f),
+        ForeColor = Muted, TextAlign = ContentAlignment.MiddleLeft
+    };
+    private readonly Label empty = new()
+    {
+        AutoSize = false, Font = new Font("Segoe UI", 12f),
+        ForeColor = Muted, TextAlign = ContentAlignment.MiddleCenter,
+        Text = "No accounts yet.\nSelect Add account to import your local four-line file."
+    };
+    private readonly Dictionary<string, (Label code, Label time)> otpViews = new();
     private readonly System.Windows.Forms.Timer otpTimer = new() { Interval = 1000 };
     private FhgAccount[] accounts = Array.Empty<FhgAccount>();
-    private string? shownOtpId;
+    private string? selectedId;
 
     public AccountsWindow()
     {
-        Text = "FHG Accounts";
-        Size = new Size(740, 545);
-        MinimumSize = new Size(640, 465);
+        Text = "FHG Accounts | Secure Workspace";
         StartPosition = FormStartPosition.CenterScreen;
-        Font = new Font("Segoe UI", 10);
-        BackColor = Color.FromArgb(246, 248, 252);
-        FormBorderStyle = FormBorderStyle.Sizable;
-        MaximizeBox = false;
+        Size = new Size(1030, 735);
+        MinimumSize = new Size(835, 575);
+        Font = new Font("Segoe UI", 10f);
+        BackColor = Surface;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        MaximizeBox = true;
+        DoubleBuffered = true;
 
-        var layout = new TableLayoutPanel
+        var root = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, Padding = new Padding(24),
-            ColumnCount = 1, RowCount = 5, BackColor = BackColor
+            Dock = DockStyle.Fill, BackColor = Surface, ColumnCount = 1, RowCount = 4,
+            Margin = Padding.Empty, Padding = Padding.Empty
         };
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 46));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
-        Controls.Add(layout);
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
+        Controls.Add(root);
 
-        var title = new Label {
-            Text = "Accounts & subscriptions",
-            Font = new Font("Segoe UI Semibold", 18),
-            ForeColor = Color.FromArgb(20, 39, 60),
-            Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft
-        };
-        layout.Controls.Add(title, 0, 0);
-        hint.Text = "Separate Firefox profile per account • Encrypted archive in your Windows user profile";
-        layout.Controls.Add(hint, 0, 1);
-
-        var panel = new Panel {
-            Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(16)
-        };
-        panel.Controls.Add(list);
-        layout.Controls.Add(panel, 0, 2);
-
-        var actions = new FlowLayoutPanel
+        var header = new Panel { Dock = DockStyle.Fill, BackColor = Navy };
+        root.Controls.Add(header, 0, 0);
+        var brand = new Label
         {
-            Dock = DockStyle.Fill, Padding = new Padding(0, 7, 0, 0),
-            WrapContents = true, AutoScroll = true
+            Text = "◆", AutoSize = false, BackColor = Color.FromArgb(26, 72, 101),
+            ForeColor = Color.FromArgb(41, 213, 190), TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 29f, FontStyle.Bold),
+            Left = 25, Top = 25, Width = 58, Height = 58
         };
-        actions.Controls.Add(Action("Add account file", Add, 154));
-        actions.Controls.Add(Action("Activate & open", ActivateAccount, 156));
-        actions.Controls.Add(Action("Edit subscription", EditSubscription, 159));
-        actions.Controls.Add(Action("Open proxy", OpenProxy, 115));
-        actions.Controls.Add(Action("Show 2FA code", ShowOtp, 136));
-        layout.Controls.Add(actions, 0, 3);
-
-        var bottom = new TableLayoutPanel {
-            Dock = DockStyle.Fill, ColumnCount = 2
+        header.Controls.Add(brand);
+        var title = new Label
+        {
+            Text = "FHG  /  ACCOUNTS", Left = 102, Top = 23, Width = 520, Height = 40,
+            Font = new Font("Segoe UI", 20f, FontStyle.Bold),
+            ForeColor = Color.White, TextAlign = ContentAlignment.MiddleLeft
         };
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-        bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-        bottom.Controls.Add(new Label {
-            Text = "Switching isolates sessions; it does not revoke old ChatGPT sessions.",
-            Dock = DockStyle.Fill, ForeColor = Color.DimGray,
-            TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Segoe UI", 8.5f)
-        }, 0, 0);
-        bottom.Controls.Add(otp, 1, 0);
-        layout.Controls.Add(bottom, 0, 4);
+        header.Controls.Add(title);
+        subtitle.Left = 103; subtitle.Top = 68; subtitle.Width = 710; subtitle.Height = 23;
+        subtitle.Text = "Private Firefox sessions   •   Local proxy   •   Encrypted vault";
+        header.Controls.Add(subtitle);
+        var headerRight = new Label
+        {
+            Text = "LOCAL VAULT", AutoSize = false, Anchor = AnchorStyles.Top | AnchorStyles.Right,
+            ForeColor = Color.FromArgb(137, 228, 211), BackColor = Color.FromArgb(24, 65, 84),
+            Font = SmallBoldFont, TextAlign = ContentAlignment.MiddleCenter,
+            Width = 135, Height = 30, Top = 38
+        };
+        header.Controls.Add(headerRight);
+        header.Resize += (_, _) => headerRight.Left = header.ClientSize.Width - headerRight.Width - 28;
+        headerRight.Left = header.Width - headerRight.Width - 28;
 
-        otpTimer.Tick += (_, _) => RefreshOtpDisplay();
-        list.SelectedIndexChanged += (_, _) => { shownOtpId = null; otp.Text = ""; };
-        LoadAccounts();
-        // The first-run experience is a file picker, not a proxy dashboard
-        // or a chain of redundant configuration dialogs.
-        Shown += (_, _) => {
-            if (accounts.Length == 0)
-                BeginInvoke(new Action(Add));
+        var toolbar = new FlowLayoutPanel
+        {
+            BackColor = Color.White, Dock = DockStyle.Fill, WrapContents = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            Padding = new Padding(20, 16, 10, 6), AutoScroll = true
+        };
+        root.Controls.Add(toolbar, 0, 1);
+        toolbar.Controls.Add(MakeButton("+  Add account", AddAccount, true, 156));
+        toolbar.Controls.Add(MakeButton("Open selected", () => ActivateAccount(Selected()), false, 151));
+        toolbar.Controls.Add(MakeButton("Change subscription", EditSubscription, false, 171));
+        toolbar.Controls.Add(MakeButton("FHG Proxy", OpenProxy, false, 122));
+        toolbar.Controls.Add(MakeButton("Refresh", RefreshCards, false, 101));
+        toolbar.Controls.Add(MakeButton("Account folder", OpenAccountFolder, false, 140));
+
+        root.Controls.Add(cards, 0, 2);
+        cards.Resize += (_, _) => ResizeCards();
+
+        var footer = new Panel { Dock = DockStyle.Fill, BackColor = Color.White };
+        root.Controls.Add(footer, 0, 3);
+        var separator = new Panel { Height = 1, Dock = DockStyle.Top, BackColor = Border };
+        footer.Controls.Add(separator);
+        status.Dock = DockStyle.Fill;
+        status.Padding = new Padding(25, 0, 20, 0);
+        status.Text = "FHG is ready. Codes are visible locally; don't share them in screenshots.";
+        footer.Controls.Add(status);
+
+        otpTimer.Tick += (_, _) => UpdateAllCodes();
+        otpTimer.Start();
+        LoadCards();
+
+        Shown += (_, _) =>
+        {
+            if (accounts.Length == 0) BeginInvoke(new Action(AddAccount));
         };
     }
 
-    private Button Action(string label, Action command, int width)
+    private Button MakeButton(string title, Action action, bool primary, int width)
     {
-        var b = new Button {
-            Text = label, Width = width, Height = 36, FlatStyle = FlatStyle.Flat,
-            BackColor = Color.White, ForeColor = Color.FromArgb(19, 51, 83),
-            Margin = new Padding(0, 3, 9, 3), Cursor = Cursors.Hand
+        var button = new Button
+        {
+            Text = title, Width = width, Height = 40,
+            Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
+            FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand,
+            BackColor = primary ? Accent : Color.White,
+            ForeColor = primary ? Color.White : Ink,
+            Margin = new Padding(0, 1, 10, 5),
+            TextAlign = ContentAlignment.MiddleCenter
         };
-        b.FlatAppearance.BorderColor = Color.FromArgb(183, 203, 224);
-        b.Click += (_, _) => {
-            try { command(); }
-            catch (Exception e) {
-                MessageBox.Show(this, "FHG action failed: " + e.Message,
-                    "FHG Accounts", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        };
-        return b;
+        button.FlatAppearance.BorderColor = primary ? Accent : Border;
+        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(24, 100, 195) : Surface;
+        button.Click += (_, _) => Safely(action);
+        return button;
     }
 
-    private void LoadAccounts(string? preferred = null)
+    private void Safely(Action action)
+    {
+        try { action(); }
+        catch (Exception error)
+        {
+            // Never display a subscription URL, password or TOTP secret
+            // embedded inside a thrown exception.
+            status.Text = "Action failed. Check account data, permissions and the FHG installation.";
+            MessageBox.Show(this,
+                "This action could not complete (" + error.GetType().Name + ").\n" +
+                "Check that FHG is correctly installed and your input is valid.\n" +
+                "No account passwords or subscription URLs were logged.",
+                "FHG Accounts", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void LoadCards(string? focusId = null)
     {
         accounts = AccountVault.Load().ToArray();
-        string? active = AccountVault.ActiveId();
-        list.BeginUpdate();
-        list.Items.Clear();
-        foreach (var a in accounts) list.Items.Add(a.Label + (a.Id == active ? "    ✓ Active" : "    • Archived"));
-        list.EndUpdate();
-        if (accounts.Length != 0)
+        selectedId = focusId ?? selectedId ?? AccountVault.ActiveId();
+        otpViews.Clear();
+        cards.SuspendLayout();
+        cards.Controls.Clear();
+        if (accounts.Length == 0)
         {
-            int index = Array.FindIndex(accounts, a => a.Id == (preferred ?? active));
-            list.SelectedIndex = index >= 0 ? index : 0;
+            empty.Width = Math.Max(400, cards.ClientSize.Width - 60);
+            empty.Height = 280;
+            cards.Controls.Add(empty);
         }
-        hint.Text = accounts.Length + " local account(s) • DPAPI-protected archive • FHG runs without Administrator";
+        else
+        {
+            foreach (var account in accounts)
+                cards.Controls.Add(CreateCard(account));
+        }
+        cards.ResumeLayout();
+        ResizeCards();
+        UpdateAllCodes();
+        subtitle.Text = accounts.Length + " encrypted account(s)  •  Isolated sessions  •  Proxy 127.0.0.1:12345";
+        status.Text = "Select an account to open its isolated Firefox session. 6-digit codes update automatically every 30 seconds.";
+    }
+
+    private Panel CreateCard(FhgAccount account)
+    {
+        bool active = account.Id == AccountVault.ActiveId();
+        bool selected = account.Id == selectedId;
+        var card = new Panel
+        {
+            Width = Math.Max(690, cards.ClientSize.Width - 58),
+            Height = 146, BackColor = selected ? Color.FromArgb(239, 248, 255) : Color.White,
+            BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 0, 0, 13),
+            Tag = account.Id, Cursor = Cursors.Hand
+        };
+        var strip = new Panel
+        {
+            Dock = DockStyle.Left, Width = 5,
+            BackColor = active ? Mint : selected ? Accent : Border
+        };
+        card.Controls.Add(strip);
+
+        string host;
+        try { host = new Uri(account.SubscriptionUrl).Host; }
+        catch { host = "Subscription saved"; }
+
+        var name = new Label
+        {
+            Text = account.Label, Font = NameFont, AutoEllipsis = true,
+            ForeColor = Ink, Left = 25, Top = 18, Width = card.Width - 360, Height = 30,
+            Cursor = Cursors.Hand
+        };
+        card.Controls.Add(name);
+        var state = new Label
+        {
+            Text = active ? "●  ACTIVE SESSION" : "○  SAVED / ARCHIVED",
+            Font = SmallBoldFont, ForeColor = active ? Mint : Muted,
+            Left = 26, Top = 58, Width = 215, Height = 22, Cursor = Cursors.Hand
+        };
+        card.Controls.Add(state);
+        var sub = new Label
+        {
+            Text = "Subscription: " + host + "   •   Separate Firefox + Proxy profile",
+            Font = SmallFont, ForeColor = Muted, AutoEllipsis = true,
+            Left = 26, Top = 92, Width = card.Width - 355, Height = 24, Cursor = Cursors.Hand
+        };
+        card.Controls.Add(sub);
+        var code = new Label
+        {
+            Text = "••• •••", Font = CodeFont, ForeColor = Ink,
+            AutoSize = false, TextAlign = ContentAlignment.MiddleCenter,
+            Left = card.Width - 312, Top = 13, Width = 172, Height = 44
+        };
+        card.Controls.Add(code);
+        var countdown = new Label
+        {
+            Text = "", Font = SmallBoldFont, ForeColor = Muted,
+            AutoSize = false, TextAlign = ContentAlignment.MiddleCenter,
+            Left = card.Width - 143, Top = 22, Width = 110, Height = 25
+        };
+        card.Controls.Add(countdown);
+        var copy = MakeButton("Copy 2FA", () => CopyCode(account), false, 132);
+        copy.Left = card.Width - 310; copy.Top = 83; copy.Height = 39;
+        copy.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        card.Controls.Add(copy);
+        var open = MakeButton(active ? "Open Firefox" : "Activate", () => ActivateAccount(account), true, 132);
+        open.Left = card.Width - 164; open.Top = 83; open.Height = 39;
+        open.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        card.Controls.Add(open);
+        card.Resize += (_, _) =>
+        {
+            name.Width = Math.Max(180, card.ClientSize.Width - 360);
+            sub.Width = Math.Max(180, card.ClientSize.Width - 355);
+            code.Left = card.ClientSize.Width - 312;
+            countdown.Left = card.ClientSize.Width - 143;
+        };
+        code.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        countdown.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        otpViews[account.Id] = (code, countdown);
+
+        void choose(object? sender, EventArgs e)
+        {
+            if (selectedId == account.Id) return;
+            selectedId = account.Id;
+            foreach (Control element in cards.Controls)
+            {
+                if (element is Panel p && p.Tag is string id)
+                    p.BackColor = id == selectedId ? Color.FromArgb(239, 248, 255) : Color.White;
+            }
+        }
+        card.Click += choose;
+        name.Click += choose;
+        state.Click += choose;
+        sub.Click += choose;
+        return card;
+    }
+
+    private void ResizeCards()
+    {
+        if (cards.IsDisposed) return;
+        int width = Math.Max(680, cards.ClientSize.Width - 57);
+        foreach (Control item in cards.Controls) item.Width = width;
+    }
+
+    private void UpdateAllCodes()
+    {
+        long epoch = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        int remaining = 30 - (int)(epoch % 30);
+        foreach (var account in accounts)
+        {
+            if (!otpViews.TryGetValue(account.Id, out var fields)) continue;
+            try
+            {
+                fields.code.Text = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
+                fields.time.Text = remaining + "s remaining";
+                fields.time.ForeColor = remaining <= 5 ? Color.FromArgb(204, 96, 48) : Muted;
+            }
+            catch (FormatException)
+            {
+                fields.code.Text = "Invalid key";
+                fields.time.Text = "Check Base32";
+            }
+        }
     }
 
     private FhgAccount Selected()
     {
-        if (list.SelectedIndex < 0 || list.SelectedIndex >= accounts.Length)
-            throw new InvalidOperationException("Select an account first.");
-        return accounts[list.SelectedIndex];
+        var selected = accounts.FirstOrDefault(a => a.Id == selectedId);
+        if (selected is null) throw new InvalidOperationException("Select an account.");
+        return selected;
     }
 
-    private void Add()
+    private void CopyCode(FhgAccount account)
     {
-        using var dialog = new OpenFileDialog {
-            Filter = "Four-line text file|*.txt|Any file|*.*",
-            Title = "Choose the LOCAL credentials + subscription file",
+        // Only explicit direct user click copies a short-lived TOTP code.
+        string code = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
+        Clipboard.SetText(code);
+        status.Text = "6-digit code copied for " + account.Label +
+                      ". Clipboard contents are visible to applications in your Windows session.";
+    }
+
+    private void AddAccount()
+    {
+        using var picker = new OpenFileDialog
+        {
+            Filter = "Four-line account file (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Choose your private 4-line FHG account file",
             CheckFileExists = true, Multiselect = false
         };
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
         if (MessageBox.Show(this,
-            "Your file contains a password, TOTP master key and subscription credential.\n\n" +
-            "Save them ENCRYPTED for this Windows user with DPAPI? " +
-            "No password or TOTP key will be sent to FHG Proxy or added to Firefox.\n\n" +
-            "Keep account recovery codes elsewhere and delete the original plaintext file yourself.",
-            "Protect account data", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            "This file contains your password, a 2FA master secret and a subscription token.\n\n" +
+            "Store them encrypted only for this Windows user with DPAPI?\n" +
+            "They will not be entered into ChatGPT or written into Firefox extension storage automatically.",
+            "FHG — import private credentials",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
             MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
 
-        var account = AccountVault.ImportFourLineFile(dialog.FileName);
-        LoadAccounts(account.Id);
-        // User already confirmed secure local import. Automatically request
-        // subscription activation; never bounce them back to old manual UI.
-        ActivateAccount();
+        var added = AccountVault.ImportFourLineFile(picker.FileName);
+        LoadCards(added.Id);
+        ActivateAccount(added);
     }
 
-    private void ActivateAccount()
+    private void ActivateAccount(FhgAccount account)
     {
-        var a = Selected();
-        var prior = AccountVault.ActiveId();
-        bool proxyRunning = Process.GetProcessesByName("FHGProxy").Length != 0;
-        if (prior != a.Id && proxyRunning)
+        string? previous = AccountVault.ActiveId();
+        bool proxyRunning = Process.GetProcessesByName("FHGProxy").Length > 0;
+        if (previous != account.Id && proxyRunning)
         {
+            status.Text = "Close the existing FHG Proxy before switching accounts. The original Hiddify can remain open.";
             MessageBox.Show(this,
-                "Close the existing FHG Proxy FIRST. It owns local ports and may belong to another account.\n\n" +
-                "Original Hiddify may remain open. FHG will not force-kill anything.",
-                "Switch safely", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                "FHG Proxy is still using the other account's local ports.\n" +
+                "Close only FHG Proxy, then activate this account again.\n\n" +
+                "Your previous account, Firefox profile and subscription will remain archived.",
+                "Finish the current session first",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
 
-        // Isolate the new Firefox session using its own profile. Other sessions
-        // stay archived rather than being deleted or remotely revoked.
-        AccountVault.SetActive(a.Id);
-        LoadAccounts(a.Id);
-        // Same account with its own already-running FHG Proxy only needs to
-        // reopen its isolated Firefox session. No redundant subscription import.
+        AccountVault.SetActive(account.Id);
+        LoadCards(account.Id);
         string? ticket = null;
         try
         {
-            var starter = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "FHG.exe")) {
-                WorkingDirectory = AppContext.BaseDirectory, UseShellExecute = false
+            var info = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "FHG.exe"))
+            {
+                WorkingDirectory = AppContext.BaseDirectory,
+                UseShellExecute = false
             };
             if (!proxyRunning)
             {
-                ticket = AccountVault.MakeSubscriptionTicket(a);
-                starter.Environment["FHG_SETUP_SUB_TICKET"] = ticket;
+                ticket = AccountVault.MakeSubscriptionTicket(account);
+                info.Environment["FHG_SETUP_SUB_TICKET"] = ticket;
             }
-            if (Process.Start(starter) is null)
-                throw new InvalidOperationException("Could not launch FHG.");
-            hint.Text = "Opening: " + a.Label + " — Firefox remains guarded and requires a working SOCKS5 proxy.";
+            if (Process.Start(info) is null)
+                throw new IOException("Could not start the FHG launcher");
+            status.Text = "Connecting FHG for " + account.Label + " and opening ChatGPT when SOCKS5 HTTPS is healthy.";
         }
         catch
         {
-            if (ticket != null) { try { File.Delete(ticket); } catch {} }
+            if (ticket != null) { try { File.Delete(ticket); } catch { } }
             throw;
         }
+    }
+
+    private void EditSubscription()
+    {
+        var account = Selected();
+        using var dialog = new Form
+        {
+            Text = "Update subscription — " + account.Label,
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = Surface, Font = Font, Width = 660, Height = 225,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false
+        };
+        var prompt = new Label
+        {
+            Left = 24, Top = 22, Width = 586, Height = 38,
+            Text = "HTTPS subscription URL (stored encrypted under your Windows user account)",
+            ForeColor = Ink
+        };
+        var input = new TextBox
+        {
+            Left = 24, Top = 67, Width = 582, Height = 34,
+            Text = account.SubscriptionUrl
+        };
+        var save = MakeButton("Save subscription", () => {}, true, 170);
+        save.Left = 436; save.Top = 121; save.DialogResult = DialogResult.OK;
+        dialog.Controls.AddRange(new Control[] { prompt, input, save });
+        dialog.AcceptButton = save;
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        AccountVault.UpdateSubscription(account.Id, input.Text.Trim());
+        LoadCards(account.Id);
+        status.Text = "Subscription saved. Close FHG Proxy and activate this account to apply the new link.";
     }
 
     private void OpenProxy()
     {
         var exe = Path.Combine(AppContext.BaseDirectory, "FHG.exe");
-        Process.Start(new ProcessStartInfo(exe, "--proxy-only") {
+        Process.Start(new ProcessStartInfo(exe, "--proxy-only")
+        {
             WorkingDirectory = AppContext.BaseDirectory,
             UseShellExecute = false
         });
+        status.Text = "FHG Proxy opened. The regular Hiddify installation is separate.";
     }
 
-    private void EditSubscription()
-    {
-        var a = Selected();
-        using var pop = new Form {
-            Text = "Update subscription for " + a.Label, Width = 570, Height = 185,
-            StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
-            MaximizeBox = false, MinimizeBox = false
-        };
-        var input = new TextBox { Left = 20, Top = 30, Width = 515, Text = a.SubscriptionUrl };
-        var ok = new Button { Text = "Save", Left = 420, Top = 80, Width = 115, DialogResult = DialogResult.OK };
-        pop.Controls.Add(input); pop.Controls.Add(ok); pop.AcceptButton = ok;
-        if (pop.ShowDialog(this) != DialogResult.OK) return;
-        AccountVault.UpdateSubscription(a.Id, input.Text.Trim());
-        LoadAccounts(a.Id);
-        MessageBox.Show(this,
-            "Subscription updated in encrypted local archive. To apply it, close FHG Proxy and click Activate & open.",
-            "Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
-    }
+    private void RefreshCards() => LoadCards(selectedId);
 
-    private void ShowOtp()
+    private void OpenAccountFolder()
     {
-        var a = Selected();
-        if (MessageBox.Show(this,
-            "Display the current 6-digit authentication code on this screen?\n\n" +
-            "Do not share codes, TOTP secrets or the plain-text input file.",
-            "Show one-time code", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-        shownOtpId = a.Id;
-        otpTimer.Start();
-        RefreshOtpDisplay();
-    }
-
-    private void RefreshOtpDisplay()
-    {
-        if (shownOtpId == null) return;
-        var a = accounts.FirstOrDefault(x => x.Id == shownOtpId);
-        if (a == null) { otpTimer.Stop(); otp.Text = ""; return; }
-        int left = 30 - (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 30);
-        otp.Text = AccountVault.GenerateTotp(a.TotpSeed, DateTimeOffset.UtcNow) + "  " + left + "s";
+        Directory.CreateDirectory(AccountVault.Root);
+        Process.Start(new ProcessStartInfo("explorer.exe", AccountVault.Root) { UseShellExecute = true });
+        status.Text = "Archive opened. Don't edit or share DPAPI vault files, passwords or master keys.";
     }
 }

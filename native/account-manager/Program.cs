@@ -82,7 +82,7 @@ internal sealed class AccountsWindow : Form
             Margin = Padding.Empty, Padding = Padding.Empty
         };
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 108));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 122));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         Controls.Add(root);
@@ -122,11 +122,13 @@ internal sealed class AccountsWindow : Form
         {
             BackColor = Color.White, Dock = DockStyle.Fill, WrapContents = true,
             FlowDirection = FlowDirection.LeftToRight,
-            Padding = new Padding(20, 16, 10, 6), AutoScroll = true
+            Padding = new Padding(20, 10, 10, 3), AutoScroll = false
         };
         root.Controls.Add(toolbar, 0, 1);
         toolbar.Controls.Add(MakeButton("+  Add account", AddAccount, true, 156));
         toolbar.Controls.Add(MakeButton("Open selected", () => ActivateAccount(Selected()), false, 151));
+        toolbar.Controls.Add(MakeButton("Edit account", () => EditAccount(Selected()), false, 132));
+        toolbar.Controls.Add(MakeButton("Delete account", () => DeleteAccount(Selected()), false, 142));
         toolbar.Controls.Add(MakeButton("Copy username", () => CopyUsername(Selected()), false, 147));
         toolbar.Controls.Add(MakeButton("Copy password", () => CopyPassword(Selected()), false, 147));
         toolbar.Controls.Add(MakeButton("Change subscription", EditSubscription, false, 171));
@@ -186,21 +188,46 @@ internal sealed class AccountsWindow : Form
         try { action(); }
         catch (Exception error)
         {
-            // Never display a subscription URL, password or TOTP secret
-            // embedded inside a thrown exception.
-            status.Text = "Action failed. Check account data, permissions and the FHG installation.";
-            MessageBox.Show(this,
-                "This action could not complete (" + error.GetType().Name + ").\n" +
-                "Check that FHG is correctly installed and your input is valid.\n" +
-                "No account passwords or subscription URLs were logged.",
-                "FHG Accounts", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            string explanation = SafeError(error);
+            status.Text = explanation;
+            MessageBox.Show(this, explanation, "FHG Accounts",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private static string SafeError(Exception error)
+    {
+        // Only predefined, non-secret messages may be shown. Do not print
+        // arbitrary exception.Message containing a URL or a credential.
+        if (error is FormatException)
+        {
+            string message = error.Message;
+            string[] safe = {
+                "Account name must", "Account name must be", "Password is empty",
+                "Authenticator secret must", "Authenticator secret could not",
+                "Subscription address must", "Another account already uses",
+                "An account with that name already exists",
+                "The file must contain exactly 4 lines",
+                "Select a local text file", "Invalid Base32"
+            };
+            if (safe.Any(prefix => message.StartsWith(prefix, StringComparison.Ordinal)))
+                return message + "\n\nUse Edit account to correct the saved fields.";
+            return "The account input has an invalid format. Check the account name, Base32 2FA secret and HTTPS subscription. You can edit existing accounts.";
+        }
+        if (error is InvalidOperationException)
+            return "No matching account is selected, or the account changed. Refresh the list and select an account.";
+        if (error is System.Runtime.InteropServices.ExternalException)
+            return "Windows clipboard is unavailable. Close clipboard managers or retry.";
+        return "Action failed (" + error.GetType().Name +
+               "). Verify the input and installed FHG files. No passwords, tokens or 2FA seeds were logged.";
     }
 
     private void LoadCards(string? focusId = null)
     {
         accounts = AccountVault.Load().ToArray();
-        selectedId = focusId ?? selectedId ?? AccountVault.ActiveId();
+        string? candidate = focusId ?? selectedId ?? AccountVault.ActiveId();
+        selectedId = accounts.Any(a => a.Id == candidate)
+            ? candidate : (accounts.FirstOrDefault(a => a.Id == AccountVault.ActiveId())?.Id ?? accounts.FirstOrDefault()?.Id);
         otpViews.Clear();
         cards.SuspendLayout();
         cards.Controls.Clear();
@@ -229,7 +256,7 @@ internal sealed class AccountsWindow : Form
         var card = new Panel
         {
             Width = Math.Max(690, cards.ClientSize.Width - 58),
-            Height = 190, BackColor = selected ? Color.FromArgb(239, 248, 255) : Color.White,
+            Height = 238, BackColor = selected ? Color.FromArgb(239, 248, 255) : Color.White,
             BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 0, 0, 13),
             Tag = account.Id, Cursor = Cursors.Hand
         };
@@ -300,6 +327,16 @@ internal sealed class AccountsWindow : Form
         var open = MakeButton(active ? "Open Firefox" : "Activate", () => ActivateAccount(account), true, 132);
         open.Left = 480; open.Top = 144; open.Height = 36;
         card.Controls.Add(open);
+        var edit = MakeButton("Edit account", () => EditAccount(account), false, 142);
+        edit.Left = 25; edit.Top = 188; edit.Height = 36;
+        card.Controls.Add(edit);
+        var delete = MakeButton("Delete account", () => DeleteAccount(account), false, 142);
+        delete.Left = 180; delete.Top = 188; delete.Height = 36;
+        delete.ForeColor = Color.FromArgb(183, 49, 57);
+        card.Controls.Add(delete);
+        var authenticator = MakeButton("Setup Firefox Authenticator", () => CopyAuthenticatorSetup(account), true, 267);
+        authenticator.Left = 335; authenticator.Top = 188; authenticator.Height = 36;
+        card.Controls.Add(authenticator);
         card.Resize += (_, _) =>
         {
             name.Width = Math.Max(180, card.ClientSize.Width - 360);
@@ -417,13 +454,17 @@ internal sealed class AccountsWindow : Form
         // containing otpauth:// lines (its published interoperable format).
         // Do NOT edit its signed XPI, Firefox storage or private database.
         // A master secret goes to Windows clipboard only after this click.
+        // Old imported records may contain an invalid Base32 seed. Check it
+        // before putting a privileged provisioning URI on the clipboard.
+        _ = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
         string seed = account.TotpSeed.Replace(" ", "").TrimEnd('=').ToUpperInvariant();
-        string label = Uri.EscapeDataString(account.Label.Replace(":", ""));
+        string safeLabel = account.Label.Replace(":", "").Replace("\r", "").Replace("\n", "");
+        string label = Uri.EscapeDataString(safeLabel);
         string uri = "otpauth://totp/ChatGPT:" + label
             + "?secret=" + Uri.EscapeDataString(seed)
             + "&issuer=ChatGPT&algorithm=SHA1&digits=6&period=30";
         CopySensitive(uri, "Confidential Authenticator setup link", 60);
-        status.Text = "Authenticator setup link copied for 60 seconds. In FHG Firefox open Authenticator > Settings > Backup > Import > Import Text Backup and paste. The extension must confirm the import.";
+        status.Text = "2FA link copied. In FHG Firefox: Authenticator > gear icon > Backup > Import Backup > Import Text Backup. Paste and confirm. FHG does not edit the signed extension database.";
     }
 
     private void AddAccount()
@@ -489,6 +530,96 @@ internal sealed class AccountsWindow : Form
             if (ticket != null) { try { File.Delete(ticket); } catch { } }
             throw;
         }
+    }
+
+
+    private void EditAccount(FhgAccount account)
+    {
+        using var dialog = new Form
+        {
+            Text = "Edit FHG account",
+            StartPosition = FormStartPosition.CenterParent,
+            BackColor = Surface, Font = Font, ClientSize = new Size(710, 424),
+            MinimumSize = new Size(690, 455),
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false, MinimizeBox = false,
+            AutoScaleMode = AutoScaleMode.Dpi
+        };
+        var heading = new Label {
+            Left = 24, Top = 14, Width = 650, Height = 36,
+            Font = new Font("Segoe UI", 13f, FontStyle.Bold),
+            ForeColor = Ink, Text = "Edit saved account and login settings"
+        };
+        dialog.Controls.Add(heading);
+
+        TextBox Field(string name, string value, int y, bool secret, int maxLength)
+        {
+            dialog.Controls.Add(new Label {
+                Left = 24, Top = y, Width = 655, Height = 24, ForeColor = Ink,
+                Text = name, Font = SmallBoldFont
+            });
+            var input = new TextBox {
+                Left = 24, Top = y + 25, Width = 652, Height = 30,
+                Text = value, MaxLength = maxLength, UseSystemPasswordChar = secret
+            };
+            dialog.Controls.Add(input);
+            return input;
+        }
+
+        var username = Field("Account username / email", account.Label, 51, false, 200);
+        var password = Field("Password (stored encrypted under Windows user)", account.Password, 117, true, 4096);
+        var seed = Field("Authenticator Base32 secret", account.TotpSeed, 183, true, 512);
+        var sub = Field("FHG Proxy HTTPS subscription", account.SubscriptionUrl, 249, true, 8192);
+
+        var show = new CheckBox {
+            Text = "Temporarily show secret fields", Left = 24, Top = 317,
+            Width = 290, Height = 26, ForeColor = Muted
+        };
+        show.CheckedChanged += (_, _) => {
+            password.UseSystemPasswordChar = !show.Checked;
+            seed.UseSystemPasswordChar = !show.Checked;
+            sub.UseSystemPasswordChar = !show.Checked;
+        };
+        dialog.Controls.Add(show);
+        var cancel = MakeButton("Cancel", () => dialog.Close(), false, 125);
+        cancel.Left = 405; cancel.Top = 359;
+        dialog.Controls.Add(cancel);
+        var save = MakeButton("Save changes", () =>
+        {
+            AccountVault.UpdateAccount(account.Id, username.Text, password.Text, seed.Text, sub.Text);
+            dialog.DialogResult = DialogResult.OK;
+        }, true, 145);
+        save.Left = 537; save.Top = 359;
+        dialog.Controls.Add(save);
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        ClearOwnedClipboard();
+        LoadCards(account.Id);
+        status.Text = "Account updated in encrypted vault. Firefox account profile preserved. Restart FHG Proxy to apply a changed subscription.";
+    }
+
+    private void DeleteAccount(FhgAccount account)
+    {
+        if (AccountVault.ActiveId() == account.Id &&
+            Process.GetProcessesByName("FHGProxy").Length > 0)
+        {
+            MessageBox.Show(this,
+                "This account is active in FHG Proxy. Close only FHG Proxy, then try Delete again. Your regular Hiddify is not affected.",
+                "Close the active FHG Proxy first", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        if (MessageBox.Show(this,
+            "Remove this account from the encrypted FHG vault?\n\n" +
+            "Account: " + account.Label + "\n\n" +
+            "Its login credentials and 2FA seed will be removed from FHG's account list.\n" +
+            "Existing Firefox profile data is NOT automatically deleted.\n" +
+            "This does NOT sign out or revoke sessions on ChatGPT servers.\n\n" +
+            "Continue?",
+            "Delete saved FHG account", MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        ClearOwnedClipboard();
+        AccountVault.DeleteAccount(account.Id);
+        LoadCards();
+        status.Text = "Saved account deleted from FHG vault. Firefox profile and server sessions were not erased.";
     }
 
     private void EditSubscription()

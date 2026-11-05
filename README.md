@@ -1,3 +1,11 @@
+## Important: old custom dashboard is retired
+
+The dark **"FHG Secure Browser"** window with **Import / Subscriptions / Servers** tabs and **port 12334** is the obsolete experimental WPF controller. **It is not the patched Hiddify GUI and is not a supported FHG build.** Its build workflow and legacy Hiddify packaging workflow are now quarantined. Do not install or redistribute old `FHG-experimental-win-x64.zip` / `FHG-original-Hiddify-UI-windows-x64.zip` packages.
+
+The intended architecture is **FHG.exe (small launcher) → Hiddify/FHGProxy.exe (patched original Hiddify v5.5.5 GUI) → SOCKS5 127.0.0.1:12345 → isolated Firefox**, plus dedicated management ports **27178** (core gRPC) and **26756** (Clash API). Firefox is a separate bundled executable/profile; existing Firefox and Hiddify installations are not modified. The latest public v0.5.2-rc.1 was reported **not connecting** by a user; do not declare the proxy fixed merely because Windows CI passes. A signed Windows installer is under development in draft PR #10 and has not been approved for public distribution.
+
+---
+
 ## FHG Proxy v0.5.2-rc.1 — subscription and browser repair
 
 [**Windows ZIP + compact 7z GitHub prerelease**](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.2-rc.1) — published only after Windows CI passes on main. **Start `FHG.exe`**, not the GUI binary under Hiddify. When already running as Administrator, the FHG launcher can install/verify its WFP guard without a second UAC prompt; it never disables Windows Defender or bypasses SmartScreen.

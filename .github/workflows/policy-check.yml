@@ -19,4 +19,10 @@ jobs:
           assert proxy["SOCKSVersion"]==5 and proxy["UseProxyForDNS"] is True
           assert proxy["Passthrough"]==""
           assert p["Preferences"]["media.peerconnection.enabled"]=={"Value": False, "Status": "locked"}
+          assert p["RequestedLocales"][0]=="en-US"
+          assert p["OverrideFirstRunPage"]==""
+          assert p["DisplayBookmarksToolbar"]=="always"
+          assert any(b["URL"]=="https://chatgpt.com/" and b["Placement"]=="toolbar" for b in p["Bookmarks"])
+          assert p["Extensions"]["Install"][0]=="https://addons.mozilla.org/firefox/downloads/latest/totp/latest.xpi"
+          assert p["Preferences"]["browser.aboutwelcome.enabled"]=={"Value": False, "Status": "locked"}
           print("Firefox policy static validation passed. This is NOT a leak test.")

@@ -271,6 +271,31 @@ replace("lib/features/profile/data/profile_parser.dart",
         'Subscription could not be downloaded. Check proxy connection or use local import.',
       );
     }""")
+
+# With user-approved bootstrap, a live but not CONNECTED FHG SOCKS listener
+# must never shadow the working normal-Hiddify proxy. Current upstream
+# selects "both" solely because 12345 accepts TCP even if all nodes are dead.
+# Always use the explicitly approved bootstrap for subscription HTTP fetches,
+# while the Firefox traffic path remains strictly FHG's own 12345 listener.
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final mode = proxyOnly && portOpen''',
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly && portOpen''')
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final mode = proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''',
+        '''    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''')
+
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

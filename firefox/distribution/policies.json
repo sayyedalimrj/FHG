@@ -3,7 +3,7 @@
     "Proxy": {
       "Mode": "manual",
       "Locked": true,
-      "SOCKSProxy": "127.0.0.1:12334",
+      "SOCKSProxy": "127.0.0.1:12345",
       "SOCKSVersion": 5,
       "UseProxyForDNS": true,
       "Passthrough": ""

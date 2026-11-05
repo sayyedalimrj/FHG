@@ -17,6 +17,18 @@ internal static class Program
     private static readonly string FirefoxDir = Path.Combine(Root, "Firefox");
     private static readonly string FirefoxExe = Path.Combine(FirefoxDir, "firefox.exe");
     private static readonly string GuardExe = Path.Combine(Root, "FHGGuard.exe");
+    private static readonly string GuardLog = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "FHG", "Logs", "guard-launch.log");
+    private static void Log(string message)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(GuardLog)!);
+            File.AppendAllText(GuardLog, $"[{DateTimeOffset.Now:O}] {message}{Environment.NewLine}");
+        }
+        catch { /* logging must not bypass any network protection */ }
+    }
     private static readonly string HiddifyExe = Path.Combine(Root, "Hiddify", "Hiddify.exe");
     private static readonly string ProfileDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -52,7 +64,7 @@ internal static class Program
             }
             if (!EnsureGuard())
             {
-                Warn("FHG did not start Firefox because its Windows network guard could not be verified.\n\nThe original Hiddify window remains available.");
+                Warn("Firefox was not opened because the network guard did not pass verification.\n\nSee the exact failure in:\n" + GuardLog + "\n\nThe Hiddify subscription interface remains available.");
                 return 6;
             }
 
@@ -139,53 +151,88 @@ internal static class Program
 
     private static bool GuardStatus()
     {
-        if (!File.Exists(GuardExe) || !File.Exists(FirefoxExe)) return false;
+        if (!File.Exists(GuardExe) || !File.Exists(FirefoxExe))
+        {
+            Log("Guard status cannot run: required executable is missing.");
+            return false;
+        }
+
         try
         {
-            using var process = Process.Start(new ProcessStartInfo(GuardExe)
+            var psi = new ProcessStartInfo(GuardExe)
             {
                 WorkingDirectory = Root,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                Arguments = "status \"" + FirefoxDir + "\""
-            });
-            if (process is null) return false;
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add("status");
+            psi.ArgumentList.Add(FirefoxDir);
+            using var process = Process.Start(psi);
+            if (process is null) { Log("Guard status process did not start."); return false; }
             if (!process.WaitForExit(20000))
             {
-                try { process.Kill(); } catch { }
+                Log("Guard status timed out after 20 seconds.");
+                try { process.Kill(entireProcessTree: true); } catch { }
                 return false;
             }
+
+            string output = process.StandardOutput.ReadToEnd().Trim();
+            string error = process.StandardError.ReadToEnd().Trim();
+            Log("Guard status exit=" + process.ExitCode +
+                ", stdout=" + output + ", stderr=" + error);
             return process.ExitCode == 0;
         }
-        catch { return false; }
+        catch (Exception e)
+        {
+            Log("Guard status exception: " + e.GetType().Name + ": " + e.Message);
+            return false;
+        }
     }
 
     private static bool EnsureGuard()
     {
+        Log("Checking per-application WFP protection for: " + FirefoxDir);
         if (GuardStatus()) return true;
-        if (!File.Exists(GuardExe)) return false;
+        if (!File.Exists(GuardExe)) { Log("Guard EXE missing."); return false; }
+
         var answer = MessageBox.Show(
-            "To keep Firefox restricted to Hiddify's local SOCKS5 port, FHG needs to install its app-specific Windows network rules once.\n\n" +
-            "This does NOT turn Windows Firewall profiles on/off or change your regular Firefox.\n\n" +
-            "The Windows Administrator prompt appears only when rules are missing or invalid.\n\nInstall now?",
-            ProductName + " - network protection", MessageBoxButtons.YesNo,
-            MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
-        if (answer != DialogResult.Yes) return false;
+            "FHG must install read-only-verifiable Windows network protection for its own Firefox. " +
+            "This never changes Windows Firewall profiles or your regular Firefox." +
+            "\n\nAdministrator approval is needed only if rules are missing or outdated." +
+            "\n\nThe reason for any failure is saved to:\n" + GuardLog +
+            "\n\nInstall/repair the guard now?",
+            ProductName + " - browser network protection",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
+        if (answer != DialogResult.Yes) { Log("Guard installation declined by user."); return false; }
 
         try
         {
-            using var process = Process.Start(new ProcessStartInfo(GuardExe)
+            var psi = new ProcessStartInfo(GuardExe)
             {
                 WorkingDirectory = Root,
                 UseShellExecute = true,
-                Verb = "runas",
-                Arguments = "install \"" + FirefoxDir + "\""
-            });
-            if (process is null) return false;
+                Verb = "runas"
+            };
+            psi.ArgumentList.Add("install");
+            psi.ArgumentList.Add(FirefoxDir);
+            using var process = Process.Start(psi);
+            if (process is null) { Log("Elevated guard process did not start."); return false; }
             process.WaitForExit();
-            return process.ExitCode == 0 && GuardStatus();
+            Log("Elevated guard install exit=" + process.ExitCode);
+            if (process.ExitCode != 0) return false;
+
+            bool verified = GuardStatus();
+            if (!verified)
+                Log("Elevated install succeeded but unelevated WFP verification failed. Check Authenticated Users read ACL and BFE status.");
+            return verified;
         }
-        catch { return false; }
+        catch (Exception e)
+        {
+            Log("Elevated guard exception: " + e.GetType().Name + ": " + e.Message);
+            return false;
+        }
     }
 
     private static void TryCreateDesktopShortcut()

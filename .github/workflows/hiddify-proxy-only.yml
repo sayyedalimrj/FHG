@@ -14,6 +14,8 @@ on:
       - 'docs/CONNECTIVITY-DIAGNOSTICS.md'
       - 'native/original-ui/Program.cs'
       - 'native/original-ui/FirstRunWizard.cs'
+      - 'native/first-run-tests/FHG.FirstRun.Tests.csproj'
+      - 'native/first-run-tests/Program.cs'
       - 'packaging/FHG-Diagnose.cmd'
       - 'docs/FIRST-RUN-LOCAL-SETUP.md'
       - 'native/original-ui/FHG.csproj'
@@ -144,6 +146,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Verify local first-run parser with dummy inputs only
+        shell: pwsh
+        run: |
+          dotnet run --project native/first-run-tests/FHG.FirstRun.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'FHG local first-run parser tests failed' }
       - name: Compile updated FHG launcher and fix WFP guard non-admin status
         shell: pwsh
         run: |

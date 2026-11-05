@@ -13,6 +13,9 @@ on:
       - 'packaging/sign-publisher.ps1'
       - 'docs/CONNECTIVITY-DIAGNOSTICS.md'
       - 'native/original-ui/Program.cs'
+      - 'native/original-ui/FirstRunWizard.cs'
+      - 'packaging/FHG-Diagnose.cmd'
+      - 'docs/FIRST-RUN-LOCAL-SETUP.md'
       - 'native/original-ui/FHG.csproj'
       - 'native/guard/FHGGuard.cpp'
       - 'native/guard/test-egress.ps1'
@@ -87,6 +90,13 @@ jobs:
           if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";') -or !$http.Contains('bootstrapApproved ? "direct"')) {throw 'User-approved bootstrapping must take priority over an inactive local FHG proxy, without DIRECT fallback'}
           if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
           if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
+          $setup=Get-Content vendor/lib/bootstrap.dart -Raw
+          $gui=Get-Content native/original-ui/Program.cs -Raw
+          $wizard=Get-Content native/original-ui/FirstRunWizard.cs -Raw
+          if (!$setup.Contains('_fhgOneTimeSubscription') -or !$setup.Contains("FHG_INITIAL_SUB_FILE") -or !$setup.Contains("upsertRemote(url)") -or !$setup.Contains('restoreConnectionOnStartup()')) {throw 'One-time subscription native import is missing'}
+          if (!$gui.Contains('WaitForSubscriptionReceipt') -or !$gui.Contains('WaitForFhgProxyHttps')) {throw 'First-run receipt or authenticated SOCKS readiness gate missing'}
+          if (!$wizard.Contains('Exactly four lines') -or !$wizard.Contains('Uri.UriSchemeHttps')) {throw 'First-run input validation missing'}
+          Write-Host 'PASS: one-time subscription import, guarded readiness and input validation source checks'
           Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0
@@ -217,6 +227,8 @@ jobs:
           Copy-Item packaging/patch-hiddify-proxy-only.py stage/FHG-SOURCE-PATCH.py
           Copy-Item packaging/rebrand-hiddify.py stage/FHG-REBRAND-SOURCE.py
           Copy-Item packaging/FHG-Diagnose.ps1 stage/FHG-Diagnose.ps1
+          Copy-Item packaging/FHG-Diagnose.cmd stage/FHG-Diagnose.cmd
+          Copy-Item docs/FIRST-RUN-LOCAL-SETUP.md stage/FIRST-RUN-LOCAL-SETUP.md
           Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
           Copy-Item docs/RELEASE-v0.5.2-rc.1.md stage/RELEASE-NOTES.md

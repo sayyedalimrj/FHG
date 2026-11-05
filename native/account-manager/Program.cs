@@ -192,11 +192,12 @@ internal sealed class AccountsWindow : Form
     {
         var a = Selected();
         var prior = AccountVault.ActiveId();
-        if (prior != a.Id && Process.GetProcessesByName("FHGProxy").Length != 0)
+        bool proxyRunning = Process.GetProcessesByName("FHGProxy").Length != 0;
+        if (prior != a.Id && proxyRunning)
         {
             MessageBox.Show(this,
-                "Close the existing FHG Proxy process FIRST. It owns local ports and may belong to another account.\n\n" +
-                "Original Hiddify may remain open. We will not force-kill a process or risk its data.",
+                "Close the existing FHG Proxy FIRST. It owns local ports and may belong to another account.\n\n" +
+                "Original Hiddify may remain open. FHG will not force-kill anything.",
                 "Switch safely", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
@@ -205,19 +206,25 @@ internal sealed class AccountsWindow : Form
         // stay archived rather than being deleted or remotely revoked.
         AccountVault.SetActive(a.Id);
         LoadAccounts(a.Id);
-        var ticket = AccountVault.MakeSubscriptionTicket(a);
+        // Same account with its own already-running FHG Proxy only needs to
+        // reopen its isolated Firefox session. No redundant subscription import.
+        string? ticket = null;
         try
         {
             var starter = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "FHG.exe")) {
                 WorkingDirectory = AppContext.BaseDirectory, UseShellExecute = false
             };
-            starter.Environment["FHG_SETUP_SUB_TICKET"] = ticket;
+            if (!proxyRunning)
+            {
+                ticket = AccountVault.MakeSubscriptionTicket(a);
+                starter.Environment["FHG_SETUP_SUB_TICKET"] = ticket;
+            }
             Process.Start(starter) ?? throw new InvalidOperationException("Could not launch FHG.");
-            hint.Text = "Activating: " + a.Label + " — subscription and HTTPS connectivity must pass.";
+            hint.Text = "Opening: " + a.Label + " — Firefox remains guarded and requires a working SOCKS5 proxy.";
         }
         catch
         {
-            try { File.Delete(ticket); } catch {}
+            if (ticket != null) { try { File.Delete(ticket); } catch {} }
             throw;
         }
     }

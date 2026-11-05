@@ -42,7 +42,7 @@
     "DefaultBrowserSettingEnabled": false,
     "DontCheckDefaultBrowser": true,
     "NoDefaultBookmarks": true,
-    "NewTabPage": false,
+    "NewTabPage": true,
     "SearchSuggestEnabled": false,
     "FirefoxSuggest": {
       "WebSuggestions": false,
@@ -69,8 +69,8 @@
     },
     "Homepage": {
       "URL": "https://chatgpt.com/",
-      "StartPage": "homepage",
-      "Locked": false
+      "Locked": false,
+      "StartPage": "homepage"
     },
     "FirefoxHome": {
       "Search": true,

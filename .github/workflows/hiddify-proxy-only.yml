@@ -80,11 +80,11 @@ jobs:
           $core=Get-Content vendor/lib/hiddifycore/hiddify_core_service.dart -Raw
           if (!$grpc.Contains('super(port: 27178)') -or $grpc.Contains('super(port: 17078)')) {throw 'Hiddify internal gRPC still conflicts with normal Hiddify'}
           if (!$bootstrap.Contains("fhg_english_default_initialized")) {throw 'FHG English first-launch migration absent'}
-          if (!$core.Contains("FHG Proxy engine has not initialized")) {throw 'Missing fail-safe profile import diagnostic'}
+          if (!$core.Contains("FHG core did not start.") -or !$core.Contains("await setup().run();")) {throw 'Missing core recovery retry and error diagnostic'}
           $http=Get-Content vendor/lib/core/http_client/dio_http_client.dart -Raw
           $parser=Get-Content vendor/lib/features/profile/data/profile_parser.dart -Raw
           $fhgHomeSource=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw
-          if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";')) {throw 'User-approved proxy bootstrap or no-direct-fallback protection missing'}
+          if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";') -or !$http.Contains('bootstrapApproved ? "direct"')) {throw 'User-approved bootstrapping must take priority over an inactive local FHG proxy, without DIRECT fallback'}
           if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
           if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
           Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'

@@ -9,6 +9,9 @@ on:
       - 'packaging/patch-hiddify-proxy-only.py'
       - 'packaging/rebrand-hiddify.py'
       - 'packaging/bundle-totp-addon.ps1'
+      - 'packaging/FHG-Diagnose.ps1'
+      - 'packaging/sign-publisher.ps1'
+      - 'docs/CONNECTIVITY-DIAGNOSTICS.md'
       - 'native/original-ui/Program.cs'
       - 'native/original-ui/FHG.csproj'
       - 'native/guard/FHGGuard.cpp'
@@ -29,6 +32,14 @@ jobs:
     timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
+      - name: Validate diagnostic PowerShell syntax before any expensive build
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path packaging/FHG-Diagnose.ps1).Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; throw 'FHG-Diagnose.ps1 has syntax errors' }
+          Write-Host 'PASS: read-only diagnostic script parses on Windows PowerShell 7 (PowerShell 5.1 syntax compatible)'
       - name: Checkout pinned upstream Hiddify
         shell: pwsh
         run: |
@@ -184,6 +195,7 @@ jobs:
           }
           Copy-Item packaging/patch-hiddify-proxy-only.py stage/FHG-SOURCE-PATCH.py
           Copy-Item packaging/rebrand-hiddify.py stage/FHG-REBRAND-SOURCE.py
+          Copy-Item packaging/FHG-Diagnose.ps1 stage/FHG-Diagnose.ps1
           Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
           Copy-Item docs/RELEASE-v0.5.2-rc.1.md stage/RELEASE-NOTES.md

@@ -16,6 +16,13 @@ on:
       - 'native/original-ui/FirstRunWizard.cs'
       - 'native/first-run-tests/FHG.FirstRun.Tests.csproj'
       - 'native/first-run-tests/Program.cs'
+      - 'native/account-manager/Program.cs'
+      - 'native/account-manager/AccountVault.cs'
+      - 'native/account-manager/FHGAccountManager.csproj'
+      - 'native/account-vault-tests/Program.cs'
+      - 'native/account-vault-tests/FHG.VaultTests.csproj'
+      - 'native/original-ui/AccountPaths.cs'
+      - 'packaging/FHG-Setup.iss'
       - 'packaging/FHG-Diagnose.cmd'
       - 'docs/FIRST-RUN-LOCAL-SETUP.md'
       - 'native/original-ui/FHG.csproj'
@@ -153,6 +160,17 @@ jobs:
         run: |
           dotnet run --project native/first-run-tests/FHG.FirstRun.Tests.csproj -c Release
           if ($LASTEXITCODE -ne 0) { throw 'FHG local first-run parser tests failed' }
+      - name: Test Windows DPAPI account vault and RFC 6238 using synthetic credentials
+        shell: pwsh
+        run: |
+          dotnet run --project native/account-vault-tests/FHG.VaultTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) {throw 'FHG DPAPI vault or OTP test failed'}
+      - name: Build self-contained FHG Account Manager EXE
+        shell: pwsh
+        run: |
+          dotnet publish native/account-manager/FHGAccountManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-accounts
+          if ($LASTEXITCODE -ne 0) {throw 'FHGAccountManager compile failed'}
+          if (!(Test-Path publish-accounts/FHGAccountManager.exe)) {throw 'Standalone account manager EXE missing'}
       - name: Compile updated FHG launcher and fix WFP guard non-admin status
         shell: pwsh
         run: |
@@ -219,6 +237,7 @@ jobs:
           }
           Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
           Copy-Item build-guard/Release/FHGGuard.exe stage/FHGGuard.exe -Force
+          Copy-Item publish-accounts/FHGAccountManager.exe stage/FHGAccountManager.exe -Force
           Write-Host 'PASS: old faulty guard and launcher replaced by rebuilt non-admin-readable WFP guard.'
       - name: Replace original UI assets with source-patched Hiddify
         shell: pwsh
@@ -242,6 +261,9 @@ jobs:
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
           Copy-Item docs/RELEASE-v0.5.2-rc.1.md stage/RELEASE-NOTES.md
           Copy-Item vendor/LICENSE.md stage/HIDDIFY-LICENSE.md
+          New-Item -ItemType Directory -Path stage/licenses -Force | Out-Null
+          Copy-Item vendor/LICENSE.md stage/licenses/Hiddify-LICENSE.md -Force
+          Copy-Item docs/FIRST-RUN-LOCAL-SETUP.md stage/licenses/FHG-SECURITY-AND-SETUP.md -Force
           $sig=Get-AuthenticodeSignature stage/Hiddify/FHGProxy.exe
           Write-Host 'Patched Hiddify signature status:' $sig.Status
           Write-Host 'Patched FHG Proxy SHA256:' (Get-FileHash stage/Hiddify/FHGProxy.exe -Algorithm SHA256).Hash
@@ -294,6 +316,40 @@ jobs:
               $p.policies.FirefoxHome.TopSites -ne $true) {throw 'Automatic Authenticator or ChatGPT Top Sites policy missing'}
           Write-Host 'PASS: Firefox first run, ChatGPT Home/Top Sites and signed Authenticator policy verified.'
           Write-Host 'PASS: AI focused Firefox compact UI and safe trim applied to complete Windows bundle.'
+      - name: Build and verify clean self-contained Windows FHG Setup EXE
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y --limit-output
+          if ($LASTEXITCODE -ne 0) {throw 'Inno Setup installation failed'}
+          $iscc='C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (!(Test-Path $iscc)) {throw "Inno Setup compiler missing: $iscc"}
+          & $iscc packaging/FHG-Setup.iss
+          if ($LASTEXITCODE -ne 0) {throw 'FHG installer compilation failed'}
+          $exe='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          if (!(Test-Path $exe)) {throw 'Standalone Setup.exe missing'}
+          $bytes=(Get-Item $exe).Length
+          if ($bytes -lt 50000000) {throw "Unexpectedly small Setup.exe: $bytes"}
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($exe+'.sha256'),($hash+'  FHG-Setup-Windows-x64-0.6.0-preview.exe'+[Environment]::NewLine),[Text.Encoding]::ASCII)
+          Write-Host "PASS: self-contained FHG Setup EXE: $bytes bytes SHA256 $hash"
+          $dest=Join-Path $env:RUNNER_TEMP 'FHG installer smoke'
+          & (Resolve-Path $exe).Path '/VERYSILENT' '/SUPPRESSMSGBOXES' '/NORESTART' ('/DIR='+$dest)
+          if ($LASTEXITCODE -ne 0) {throw "Installer silent test failed: $LASTEXITCODE"}
+          foreach($p in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','Hiddify/FHGProxy.exe','Firefox/firefox.exe','licenses/Hiddify-LICENSE.md')){
+            if (!(Test-Path (Join-Path $dest $p))) {throw "Missing installed file: $p"}
+          }
+          if ((Get-ChildItem $dest -Recurse -File | Where-Object { $_.Extension -in '.py','.pyc','.pdb' } | Measure-Object).Count -gt 0){
+            throw 'Developer source files leaked into installed app tree'
+          }
+          Write-Host 'PASS: silent installer into custom folder, 3 native EXEs and no developer source files.'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-Setup-EXE-ENGINEERING-PREVIEW
+          path: |
+            installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe
+            installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe.sha256
+          retention-days: 7
+          if-no-files-found: error
       - name: Package complete offline test artifact
         shell: pwsh
         run: |

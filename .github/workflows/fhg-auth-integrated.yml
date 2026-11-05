@@ -53,6 +53,24 @@ jobs:
           }
           python native/auth-native-host/test_protocol.py publish-host/FHGNativeHost.exe
           if ($LASTEXITCODE -ne 0) { throw 'Native Messaging caller/origin protocol regression failed' }
+      - name: Compile installer script with synthetic, NEVER-DISTRIBUTED payload
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup unavailable' }
+          New-Item -ItemType Directory -Force stage/Firefox,stage/Hiddify,stage/licenses | Out-Null
+          Copy-Item publish-launcher/FHG.exe stage/FHG.exe
+          Copy-Item publish-accounts/FHGAccountManager.exe stage/FHGAccountManager.exe
+          Copy-Item publish-host/FHGNativeHost.exe stage/FHGNativeHost.exe
+          [IO.File]::WriteAllText('stage/FHGGuard.exe', 'SYNTHETIC-NOT-FOR-DISTRIBUTION')
+          [IO.File]::WriteAllText('stage/Firefox/firefox.exe', 'SYNTHETIC-NOT-FOR-DISTRIBUTION')
+          [IO.File]::WriteAllText('stage/Hiddify/FHGProxy.exe', 'SYNTHETIC-NOT-FOR-DISTRIBUTION')
+          [IO.File]::WriteAllText('stage/licenses/Hiddify-LICENSE.md', 'SYNTHETIC-NOT-FOR-DISTRIBUTION')
+          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' packaging/FHG-Setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Native Messaging installer Pascal code failed to compile' }
+          Remove-Item stage -Recurse -Force
+          Remove-Item installer-output -Recurse -Force
+          Write-Host 'PASS: installer script compiles, synthetic payload destroyed before any artifact'
       - name: Preserve auditable extension source package
         shell: pwsh
         run: |

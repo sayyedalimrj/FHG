@@ -360,12 +360,21 @@ internal static class Program
 
     private static void TryCreateDesktopShortcuts()
     {
-        string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        // If launched with an alternate Administrator identity the per-user
+        // Desktop would point to the administrator's account instead of the
+        // person who requested FHG. Install to the public Desktop for that
+        // one elevated launch; future unelevated launches will reuse it.
+        bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+            .IsInRole(WindowsBuiltInRole.Administrator);
+        string publicDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+        string ownDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+        string desktop = elevated && Directory.Exists(publicDesktop) ? publicDesktop : ownDesktop;
         if (string.IsNullOrWhiteSpace(desktop) || !Directory.Exists(desktop))
         {
-            Log("Desktop shortcut: user Desktop folder was not resolved.");
+            Log("Desktop shortcuts unavailable: no writable Desktop folder could be resolved.");
             return;
         }
+        Log("Creating FHG shortcuts in " + (desktop == publicDesktop ? "CommonDesktop" : "UserDesktop"));
 
         Type? cls = Type.GetTypeFromProgID("WScript.Shell");
         if (cls is null)
@@ -384,6 +393,14 @@ internal static class Program
             string link = Path.Combine(desktop, entry.Name + ".lnk");
             try
             {
+                // Don't make duplicate icons on a user's Desktop after the
+                // elevated first-run created an all-users desktop shortcut.
+                if (!elevated && File.Exists(Path.Combine(publicDesktop, entry.Name + ".lnk")) &&
+                    !File.Exists(link))
+                {
+                    Log("Shortcut already visible from CommonDesktop: " + entry.Name);
+                    continue;
+                }
                 dynamic shell = Activator.CreateInstance(cls)!;
                 dynamic shortcut = shell.CreateShortcut(link);
                 if (File.Exists(link))

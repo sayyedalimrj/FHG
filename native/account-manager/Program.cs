@@ -294,7 +294,8 @@ internal sealed class AccountsWindow : Form
         card.Controls.Add(sub);
         var setupLink = new LinkLabel
         {
-            Text = "Copy setup link for Firefox Authenticator",
+            Text = File.Exists(Path.Combine(AppContext.BaseDirectory, "Firefox", "distribution", "fhg-auto-authenticator.xpi"))
+                ? "Automatically synced to FHG Authenticator" : "Manual Authenticator import (legacy)",
             Left = 26, Top = 115, Width = 400, Height = 22,
             LinkColor = Accent, ActiveLinkColor = Mint, Font = SmallFont,
             Cursor = Cursors.Hand
@@ -334,7 +335,7 @@ internal sealed class AccountsWindow : Form
         delete.Left = 180; delete.Top = 188; delete.Height = 36;
         delete.ForeColor = Color.FromArgb(183, 49, 57);
         card.Controls.Add(delete);
-        var authenticator = MakeButton("Setup Firefox Authenticator", () => CopyAuthenticatorSetup(account), true, 267);
+        var authenticator = MakeButton("FHG Authenticator", () => CopyAuthenticatorSetup(account), true, 267);
         authenticator.Left = 335; authenticator.Top = 188; authenticator.Height = 36;
         card.Controls.Add(authenticator);
         card.Resize += (_, _) =>
@@ -450,6 +451,22 @@ internal sealed class AccountsWindow : Form
 
     private void CopyAuthenticatorSetup(FhgAccount account)
     {
+        // When the separately signed FHG Authenticator is present, its popup
+        // enumerates AccountVault records directly through Native Messaging.
+        // No clipboard, import, extension database edits or additional 2FA prompts.
+        string integrated = Path.Combine(AppContext.BaseDirectory, "Firefox",
+            "distribution", "fhg-auto-authenticator.xpi");
+        if (File.Exists(integrated))
+        {
+            status.Text = "Synced automatically: FHG Authenticator shows all encrypted vault accounts. Open its toolbar icon inside FHG Firefox.";
+            MessageBox.Show(this,
+                "FHG Authenticator reads this account directly from the Windows encrypted vault.\n" +
+                "Open FHG Firefox and click the FHG Authenticator icon.\n" +
+                "No manual import or clipboard setup is required.\n\n" +
+                "A valid Mozilla-signed companion XPI and FHGNativeHost are required.",
+                "FHG Authenticator", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         // Authenticator by mymindstorm explicitly supports importing text
         // containing otpauth:// lines (its published interoperable format).
         // Do NOT edit its signed XPI, Firefox storage or private database.

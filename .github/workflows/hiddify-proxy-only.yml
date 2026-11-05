@@ -86,6 +86,8 @@ jobs:
           if (!$grpc.Contains('super(port: 27178)') -or $grpc.Contains('super(port: 17078)')) {throw 'Hiddify internal gRPC still conflicts with normal Hiddify'}
           if (!$bootstrap.Contains("fhg_english_default_initialized")) {throw 'FHG English first-launch migration absent'}
           if (!$core.Contains("FHG core did not start.") -or !$core.Contains("await setup().run();")) {throw 'Missing core recovery retry and error diagnostic'}
+          $conn=Get-Content vendor/lib/features/connection/data/connection_repository.dart -Raw
+          if (!$conn.Contains("(singbox.core as CoreInterfaceDesktopTun).useAdminBgService = false")) {throw 'FHG must never request vendor HiddifyAdmin elevation for proxy-only mode'}
           $http=Get-Content vendor/lib/core/http_client/dio_http_client.dart -Raw
           $parser=Get-Content vendor/lib/features/profile/data/profile_parser.dart -Raw
           $fhgHomeSource=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw

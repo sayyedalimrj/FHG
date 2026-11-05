@@ -37,9 +37,7 @@ internal static class Program
         catch { /* logging must not bypass any network protection */ }
     }
     private static readonly string HiddifyExe = Path.Combine(Root, "Hiddify", "FHGProxy.exe");
-    private static readonly string ProfileDir =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                     "FHG", "FirefoxProfile");
+    private static string ProfileDir => AccountPaths.FirefoxProfile;
 
     [STAThread]
     private static int Main()
@@ -57,6 +55,15 @@ internal static class Program
             // Shortcuts always route through FHG.exe, not raw FHGProxy.exe.
             bool proxyOnly = Environment.GetCommandLineArgs().Skip(1)
                 .Any(a => a.Equals("--proxy-only", StringComparison.OrdinalIgnoreCase));
+            bool accountsOnly = Environment.GetCommandLineArgs().Skip(1)
+                .Any(a => a.Equals("--accounts", StringComparison.OrdinalIgnoreCase));
+            if (accountsOnly)
+            {
+                string manager = Path.Combine(Root, "FHGAccountManager.exe");
+                if (!File.Exists(manager)) { Warn("Account Manager is missing. Reinstall the complete FHG package."); return 12; }
+                Process.Start(new ProcessStartInfo(manager) { WorkingDirectory = Root, UseShellExecute = false });
+                return 0;
+            }
             bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
                 .IsInRole(WindowsBuiltInRole.Administrator);
             if (elevated)
@@ -89,9 +96,19 @@ internal static class Program
             }
 
             FirstRunRequest? firstRun = null;
-            if (!proxyOnly && !FirstRunWizard.Completed)
+            if (!proxyOnly)
             {
-                firstRun = FirstRunWizard.AskForLocalFile();
+                string? suppliedTicket = AccountPaths.ValidateProvisionTicket();
+                if (suppliedTicket != null)
+                {
+                    firstRun = new FirstRunRequest(
+                        suppliedTicket, suppliedTicket + ".status", "");
+                }
+                else if (AccountPaths.ActiveId == null && !FirstRunWizard.Completed)
+                {
+                    // Backward-compatible path for previous portable installs.
+                    firstRun = FirstRunWizard.AskForLocalFile();
+                }
             }
 
             if (!StartOfficialHiddify(firstRun))
@@ -231,6 +248,10 @@ internal static class Program
                     childInfo.Environment["FHG_BOOTSTRAP_HTTP_PROXY"] = "127.0.0.1:12334";
                     Log("User opted in to existing loopback subscription bootstrap at port 12334.");
                 }
+            }
+            if (AccountPaths.ActiveId is string id)
+            {
+                childInfo.Environment["FHG_ACCOUNT_ID"] = id;
             }
             if (firstRun is not null)
             {
@@ -535,7 +556,8 @@ internal static class Program
         // launcher, never expose the internal raw proxy binary directly.
         foreach (var entry in new[] {
             (Name: "FHG Firefox", Args: "", Description: "FHG isolated Firefox browser (ChatGPT)", Icon: FirefoxExe),
-            (Name: "FHG Proxy", Args: "--proxy-only", Description: "FHG Proxy: subscriptions, nodes and latency", Icon: HiddifyExe)
+            (Name: "FHG Proxy", Args: "--proxy-only", Description: "FHG Proxy: subscriptions, nodes and latency", Icon: HiddifyExe),
+            (Name: "FHG Accounts", Args: "--accounts", Description: "Switch ChatGPT account and subscription", Icon: Path.Combine(Root, "FHGAccountManager.exe"))
         })
         {
             string link = Path.Combine(desktop, entry.Name + ".lnk");

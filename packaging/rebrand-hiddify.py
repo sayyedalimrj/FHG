@@ -60,6 +60,65 @@ replace("lib/core/model/constants.dart", 'static const appName = "Hiddify";',
 replace("lib/features/auto_start/notifier/auto_start_notifier.dart",
         'packageName: "Hiddify.App.Win",', 'packageName: "FHG.Proxy.Win",')
 
+# An installed Hiddify still owns the Windows-internal gRPC 17078 endpoint.
+# A new EXE or mutex is not enough: using 17078 left fgClient uninitialized
+# whenever both clients ran together. Keep control RPC separate from 12345.
+replace("lib/hiddifycore/core_interface/core_interface_desktop.dart",
+        "CoreInterfaceDesktop({this.port = 17078});",
+        "CoreInterfaceDesktop({this.port = 27178});")
+replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
+        "CoreInterfaceDesktopTun() : super(port: 17078);",
+        "CoreInterfaceDesktopTun() : super(port: 27178);")
+
+# Fail with an actionable error instead of a LateInitializationError whenever
+# native library setup or its localhost RPC handshake failed. Do not delete
+# any user profiles or reset any state as part of this recovery.
+replace("lib/hiddifycore/hiddify_core_service.dart",
+        '''      try {
+        final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''',
+        '''      if (!core.isInitialized()) {
+        return left('FHG Proxy engine was not initialized. Internal gRPC port 27178 must be free; restart FHG Proxy and inspect its app.log.');
+      }
+      try {
+        final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''')
+replace("lib/hiddifycore/hiddify_core_service.dart",
+        '''      loggy.debug("changing options");
+      // latestOptions = options;''',
+        '''      loggy.debug("changing options");
+      if (!core.isInitialized()) {
+        return left('FHG Proxy engine has not initialized; cannot add or validate profiles. Check port 27178 and restart FHG Proxy.');
+      }
+      // latestOptions = options;''')
+replace("lib/hiddifycore/hiddify_core_service.dart",
+        '''  TaskEither<String, String> generateFullConfigByPath(String path) {
+    return TaskEither(() async {
+      final response = await core.fgClient.parse''',
+        '''  TaskEither<String, String> generateFullConfigByPath(String path) {
+    return TaskEither(() async {
+      if (!core.isInitialized()) {
+        return left('FHG Proxy engine not ready: internal gRPC port 27178. Restart FHG Proxy.');
+      }
+      final response = await core.fgClient.parse''')
+
+# On first start of the new FHG build, ignore locale accidentally inherited
+# from Hiddify or an earlier FHG package. A later explicit language choice in
+# the FHG settings remains preserved in its distinct preference store.
+replace("lib/bootstrap.dart",
+        "import 'dart:async';",
+        "import 'dart:async';\nimport 'dart:io';")
+replace("lib/bootstrap.dart",
+        '''  await _init("preferences", () => container.read(sharedPreferencesProvider.future));
+  // The ring starts at a safe default''',
+        '''  await _init("preferences", () => container.read(sharedPreferencesProvider.future));
+  if (Platform.isWindows && Environment.isPortable) {
+    final prefs = container.read(sharedPreferencesProvider).requireValue;
+    if (prefs.getBool('fhg_english_default_initialized') != true) {
+      await prefs.setString('locale', 'en');
+      await prefs.setBool('fhg_english_default_initialized', true);
+    }
+  }
+  // The ring starts at a safe default''')
+
 # No conflicts with the vendor portable data folder or vendor preference keys.
 replace("lib/core/directories/directories_provider.dart",
         "p.join(exeDir.path, 'hiddify_portable_data')",

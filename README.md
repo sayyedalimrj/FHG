@@ -1,3 +1,15 @@
+## Proxy-only source-modified Hiddify (v0.5 development build)
+
+The requested lock is implemented in **Hiddify's Flutter source** (not as UI CSS or a Windows launcher trick). Based on official v5.5.5, the [auditable patch](packaging/patch-hiddify-proxy-only.py) and [Windows source-build workflow](.github/workflows/hiddify-proxy-only.yml) enforce:
+- Proxy mode only; **no selectable VPN/TUN or system proxy**, fixed loopback SOCKS5 `127.0.0.1:12334` even after profile-level overrides.
+- No WARP/Psiphon chain hop activation, LAN sharing or editable inbound mode/port.
+- No analytics toggle, disabled crash-reporting and no upstream Hiddify in-app update that could silently remove the restrictions.
+- The normal vendor subscription lists, usage/remaining data, node list and latency tests remain available.
+
+**Development status:** the patched GUI needs a validated Windows Flutter build and real-world integration testing with Firefox and Hiddify. The source patch and build are not a zero-leak security certification. See [details, risks and Hiddify redistribution-license conditions](docs/HIDDIFY-PROXY-ONLY.md). Do not confuse the older v0.4 **unmodified Hiddify** release with this custom source build.
+
+---
+
 ## FHG v0.4 — Original Hiddify UI (replaces the custom WPF subscription screen)
 
 **[Download v0.4.0-alpha.1 from GitHub Releases](https://github.com/sayyedalimrj/FHG/releases/tag/v0.4.0-alpha.1)**

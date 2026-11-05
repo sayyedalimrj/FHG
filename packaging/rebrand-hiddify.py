@@ -320,6 +320,22 @@ replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
     const wantAdminBg = false;
     if (!wantAdminBg) {""")
 
+# The upstream Windows connection repository may request its own elevated
+# HiddifyAdmin background service for optional proxy features. FHG intentionally
+# offers only unprivileged local proxy mode; WFP elevation is handled once by
+# FHGGuard.exe. Do not prompt for or attach to the vendor's admin service.
+replace("lib/features/connection/data/connection_repository.dart",
+        """    if (!Platform.isWindows && !Platform.isLinux) return;
+    final core = singbox.core;""",
+        """    if (Platform.isWindows) {
+      if (singbox.core is CoreInterfaceDesktopTun) {
+        (singbox.core as CoreInterfaceDesktopTun).useAdminBgService = false;
+      }
+      return;
+    }
+    if (!Platform.isWindows && !Platform.isLinux) return;
+    final core = singbox.core;""")
+
 # One-time subscription import via an unguessable user-local file ticket.
 # Account password and TOTP seed are NEVER passed to Hiddify.
 replace("lib/bootstrap.dart",

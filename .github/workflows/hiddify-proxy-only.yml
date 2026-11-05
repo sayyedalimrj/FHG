@@ -1,15 +1,22 @@
 name: FHG patched Hiddify Proxy-only Windows
 on:
   push:
+    branches: [main]
     paths:
       - 'packaging/patch-hiddify-proxy-only.py'
+      - 'packaging/rebrand-hiddify.py'
+      - 'native/original-ui/Program.cs'
+      - 'native/original-ui/FHG.csproj'
+      - 'native/guard/FHGGuard.cpp'
+      - 'native/guard/test-egress.ps1'
+      - 'docs/RELEASE-v0.5.0-rc.2.md'
       - 'firefox/distribution/policies.json'
       - 'packaging/trim-firefox-safe.ps1'
       - '.github/workflows/hiddify-proxy-only.yml'
       - 'docs/HIDDIFY-PROXY-ONLY.md'
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   windows:
     runs-on: windows-2022
@@ -28,11 +35,13 @@ jobs:
         run: |
           python packaging/patch-hiddify-proxy-only.py vendor
           if ($LASTEXITCODE -ne 0) {throw 'Source patch failed'}
+          python packaging/rebrand-hiddify.py vendor
+          if ($LASTEXITCODE -ne 0) {throw 'FHG rebrand patch failed'}
           git -C vendor diff --check
           if ($LASTEXITCODE -ne 0) {throw 'Source patch whitespace error'}
           git -C vendor diff | Out-File -FilePath FHG-HIDDIFY-SOURCE.patch -Encoding utf8
           $config=Get-Content vendor/lib/features/settings/data/config_option_repository.dart -Raw
-          foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12334", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
+          foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12345", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
             if (!$config.Contains($key)) {throw "Runtime invariant missing: $key"}
           }
           $nav=Get-Content vendor/lib/core/router/adaptive_layout/my_adaptive_layout.dart -Raw
@@ -41,7 +50,15 @@ jobs:
           if (!$locale.Contains('if (persisted == null) return AppLocale.en;')) {throw 'English is not the default locale'}
           $analytics=Get-Content vendor/lib/core/analytics/analytics_controller.dart -Raw
           if ($analytics.Contains('SentryFlutter.init')) {throw 'Sentry activation still present'}
-          Write-Host 'PASS: source-config runtime restrictions and disabled analytics'
+          $runner=Get-Content vendor/windows/runner/main.cpp -Raw
+          $dirs=Get-Content vendor/lib/core/directories/directories_provider.dart -Raw
+          $tray=Get-Content vendor/lib/features/system_tray/notifier/system_tray_notifier.dart -Raw
+          $links=Get-Content vendor/lib/core/router/deep_linking/my_app_links.dart -Raw
+          if (!$runner.Contains('FHGProxyMutex') -or $runner.Contains('HiddifyMutex')) {throw 'Native GUI still conflicts with ordinary Hiddify'}
+          if (!$dirs.Contains('fhg_proxy_portable_data')) {throw 'Dedicated data folder missing'}
+          if ($tray.Contains('...ServiceMode.values.map(')) {throw 'Tray still exposes unsupported VPN modes'}
+          if ($links.Contains('registerProtocolHandler(protocol);')) {throw 'FHG still overwrites original Hiddify protocol handlers'}
+          Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0
         with:
           flutter-version: '3.38.5'
@@ -61,7 +78,7 @@ jobs:
         run: |
           flutter build windows --release --target lib/main_prod.dart --dart-define=portable=true --dart-define=sentry_dsn=
           if ($LASTEXITCODE -ne 0) {throw 'Patched Flutter compile failed'}
-          if (!(Test-Path 'build/windows/x64/runner/Release/Hiddify.exe')) {throw 'No patched Hiddify.exe'}
+          if (!(Test-Path 'build/windows/x64/runner/Release/FHGProxy.exe')) {throw 'No patched FHGProxy.exe'}
           if (!(Test-Path 'build/windows/x64/runner/Release/data/flutter_assets')) {throw 'No patched Flutter UI assets'}
       - uses: actions/setup-dotnet@v4
         with:
@@ -98,7 +115,7 @@ jobs:
           New-Item -ItemType Directory -Force stage | Out-Null
           & $z x FHG-base.zip -ostage -y | Out-Null
           if ($LASTEXITCODE -ne 0) {throw 'Base ZIP extraction failed'}
-          foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/Hiddify.exe')){
+          foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/FHGProxy.exe')){
             if (!(Test-Path $f)) {throw "Missing expected FHG base file: $f"}
           }
           Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
@@ -109,26 +126,31 @@ jobs:
         run: |
           $release='vendor/build/windows/x64/runner/Release'
           Remove-Item stage/Hiddify/data -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item stage/Hiddify/Hiddify.exe -Force -ErrorAction SilentlyContinue
           Get-ChildItem $release -Force | ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination stage/Hiddify -Recurse -Force
           }
-          foreach($f in @('stage/Hiddify/Hiddify.exe','stage/Hiddify/flutter_windows.dll','stage/Hiddify/data/flutter_assets')){
+          foreach($f in @('stage/Hiddify/FHGProxy.exe','stage/Hiddify/flutter_windows.dll','stage/Hiddify/data/flutter_assets')){
             if (!(Test-Path $f)) {throw "Patched GUI incomplete: $f"}
           }
           Copy-Item packaging/patch-hiddify-proxy-only.py stage/FHG-SOURCE-PATCH.py
+          Copy-Item packaging/rebrand-hiddify.py stage/FHG-REBRAND-SOURCE.py
           Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
+          Copy-Item docs/RELEASE-v0.5.0-rc.2.md stage/RELEASE-NOTES.md
           Copy-Item vendor/LICENSE.md stage/HIDDIFY-LICENSE.md
-          $sig=Get-AuthenticodeSignature stage/Hiddify/Hiddify.exe
+          $sig=Get-AuthenticodeSignature stage/Hiddify/FHGProxy.exe
           Write-Host 'Patched Hiddify signature status:' $sig.Status
-          Write-Host 'Patched Hiddify SHA256:' (Get-FileHash stage/Hiddify/Hiddify.exe -Algorithm SHA256).Hash
+          Write-Host 'Patched FHG Proxy SHA256:' (Get-FileHash stage/Hiddify/FHGProxy.exe -Algorithm SHA256).Hash
+          if (Test-Path stage/Hiddify/Hiddify.exe) {throw 'Old conflicting Hiddify.exe remains in bundle'}
+          ./native/app/resources/check-icon-signature.ps1 -Controller stage/Hiddify/FHGProxy.exe -Guard stage/FHGGuard.exe
       - name: Slim isolated FHG Firefox safely for AI websites
         shell: pwsh
         run: |
           Copy-Item firefox/distribution/policies.json stage/Firefox/distribution/policies.json -Force
           ./packaging/trim-firefox-safe.ps1 -FirefoxDirectory stage/Firefox
           $p=Get-Content 'stage/Firefox/distribution/policies.json' -Raw | ConvertFrom-Json
-          if ($p.policies.Proxy.SOCKSProxy -ne '127.0.0.1:12334' -or
+          if ($p.policies.Proxy.SOCKSProxy -ne '127.0.0.1:12345' -or
               !$p.policies.Proxy.Locked -or !$p.policies.Proxy.UseProxyForDNS -or
               !$p.policies.DisableAppUpdate) {throw 'Firefox proxy or update lock weakened'}
           if ($p.policies.NewTabPage -ne $false -or
@@ -138,7 +160,7 @@ jobs:
         shell: pwsh
         run: |
           $z='C:\Program Files\7-Zip\7z.exe'
-          $filename='FHG-proxy-only-alpha-win-x64.zip'
+          $filename='FHG-ProxyOnly-12345-Windows-x64-v0.5.0-rc.2.zip'
           $target=Join-Path (Get-Location) $filename
           Push-Location stage
           try {
@@ -152,9 +174,20 @@ jobs:
           Write-Host "PASS: ZIP integrity. SHA256 $hash"
       - uses: actions/upload-artifact@v4
         with:
-          name: FHG-patched-Hiddify-Proxy-Only-Windows-x64-Experimental
+          name: FHG-ProxyOnly-12345-Windows-x64-rc2
           path: |
             FHG-proxy-only-alpha-win-x64.zip
             FHG-proxy-only-alpha-win-x64.zip.sha256
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
+      - name: Publish GitHub prerelease with directly downloadable ZIP
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag='v0.5.0-rc.2'
+          $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.0-rc.2.zip'
+          if (!(Test-Path $zip) -or !(Test-Path "$zip.sha256")) {throw 'Release assets missing'}
+          gh release create $tag $zip "$zip.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.0-rc.2 - Independent Hiddify / Port 12345' --notes-file docs/RELEASE-v0.5.0-rc.2.md --prerelease
+          if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}

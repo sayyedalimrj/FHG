@@ -110,7 +110,24 @@ jobs:
         shell: pwsh
         run: |
           $url='https://github.com/sayyedalimrj/FHG/releases/download/v0.4.0-alpha.1/FHG-original-Hiddify-UI-windows-x64.zip'
-          Invoke-WebRequest -Uri $url -OutFile FHG-base.zip
+          $expectedBase='56254841405e8a681f32ee52a00b3f6fffa8d7e2ac0f7c57c3f28f38bd94c1d1'
+          $downloaded=$false
+          for($attempt=1; $attempt -le 8; $attempt++){
+            try {
+              Write-Host "Downloading validated base archive (attempt $attempt / 8)"
+              & curl.exe -fSL --retry 2 --retry-all-errors --retry-delay 4 --connect-timeout 25 --max-time 420 -o FHG-base.zip $url
+              if ($LASTEXITCODE -ne 0) {throw "curl.exe returned exit code $LASTEXITCODE"}
+              $hash=(Get-FileHash FHG-base.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($hash -ne $expectedBase) {throw "Base SHA256 mismatch: $hash"}
+              $downloaded=$true
+              break
+            } catch {
+              Write-Warning "Base archive download attempt $attempt failed: $($_.Exception.Message)"
+              Remove-Item FHG-base.zip -ErrorAction SilentlyContinue
+              if ($attempt -lt 8) {Start-Sleep -Seconds ([Math]::Min(30,3*$attempt))}
+            }
+          }
+          if (!$downloaded) {throw 'Unable to download and hash-verify pinned v0.4 base after retries'}
           $z='C:\Program Files\7-Zip\7z.exe'
           & $z t FHG-base.zip | Out-Null
           if ($LASTEXITCODE -ne 0) {throw 'Base ZIP invalid'}
@@ -191,5 +208,11 @@ jobs:
           $tag='v0.5.0-rc.2'
           $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.0-rc.2.zip'
           if (!(Test-Path $zip) -or !(Test-Path "$zip.sha256")) {throw 'Release assets missing'}
-          gh release create $tag $zip "$zip.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.0-rc.2 - Independent Hiddify / Port 12345' --notes-file docs/RELEASE-v0.5.0-rc.2.md --prerelease
+          gh release view $tag --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag already exists; refusing to overwrite immutable published artifacts."
+          } else {
+            gh release create $tag $zip "$zip.sha256" FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG Proxy v0.5.0-rc.2 - Independent Hiddify / Port 12345' --notes-file docs/RELEASE-v0.5.0-rc.2.md --prerelease
+            if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}
+          }
           if ($LASTEXITCODE -ne 0) {throw 'GitHub release publish failed'}

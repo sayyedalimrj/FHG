@@ -239,7 +239,7 @@ jobs:
           $saved=[Math]::Round((1-$smaller/$regular)*100,1)
           Write-Host "PASS: standard ZIP $regular bytes; compact 7z $smaller bytes; reduction $saved percent; SHA256 $cHash"
           if ($smaller -ge $regular) {throw 'Compact distribution did not achieve any size reduction'}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: FHG-ProxyOnly-12345-Windows-x64-rc2
           path: |

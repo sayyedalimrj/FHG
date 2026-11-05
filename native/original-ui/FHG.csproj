@@ -13,7 +13,7 @@
     <ApplicationIcon>Assets\FHG.ico</ApplicationIcon>
     <AssemblyName>FHG</AssemblyName>
     <AssemblyTitle>FHG Browser</AssemblyTitle>
-    <AssemblyProduct>FHG + Official Hiddify UI</AssemblyProduct>
-    <Version>0.4.0-alpha.1</Version>
+    <AssemblyProduct>FHG + Dedicated FHG Proxy UI</AssemblyProduct>
+    <Version>0.5.0</Version>
   </PropertyGroup>
 </Project>

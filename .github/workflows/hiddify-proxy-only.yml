@@ -404,7 +404,9 @@ jobs:
           retention-days: 7
           if-no-files-found: error
       - name: Publish downloadable unsigned FHG test installer on GitHub Releases
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature-exe-installer-dpapi-accounts-20261105'
+        # Release packaging is delegated to fast-repackage-test3.yml, which
+        # preserves the user-verified Hiddify/Firefox binary baseline.
+        if: false
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -58,7 +58,7 @@ replace(p,
 # not merely on UI widgets. This also defeats stored legacy values.
 replace(p, "    final mode = ref.watch(serviceMode);", "    const mode = ServiceMode.proxy; // FHG runtime invariant")
 for before,after in (
-    ("mixedPort: ref.watch(mixedPort),", "mixedPort: 12334,"),
+    ("mixedPort: ref.watch(mixedPort),", "mixedPort: 12345,"),
     ("enableMixedPort: ref.watch(enableMixedPort),", "enableMixedPort: true,"),
     ("enableTproxyPort: ref.watch(enableTproxyPort),", "enableTproxyPort: false,"),
     ("enableDirectPort: ref.watch(enableDirectPort),", "enableDirectPort: false,"),
@@ -73,7 +73,7 @@ for before,after in (
 
 # Profile-specific settings overrides are applied after normal options. Reassert
 # the invariant after merging, so imported configs can't enable VPN/system proxy,
-# expose LAN listeners, move port 12334, or enable WARP/Psiphon chain.
+# expose LAN listeners, move port 12345, or enable WARP/Psiphon chain.
 replace(p,
     '''          final merged = ProfileParser.applyProfileOverride(options.toJson(), profileOverride);
           return SingboxConfigOption.fromJson(keepOwnDnsBehindExtraSecurity(own, merged));''',
@@ -81,7 +81,7 @@ replace(p,
           final safe = keepOwnDnsBehindExtraSecurity(own, merged);
           return SingboxConfigOption.fromJson({
             ...safe,
-            'mixed-port': 12334,
+            'mixed-port': 12345,
             'enable-mixed-port': true,
             'enable-tun': false,
             'set-system-proxy': false,
@@ -108,7 +108,7 @@ class QuickSettingsModal extends StatelessWidget {
       child: ListTile(
         leading: Icon(Icons.lock_outline_rounded),
         title: Text('Browser proxy mode'),
-        subtitle: Text('Locked to 127.0.0.1:12334. System Proxy, VPN, LAN sharing and WARP are unavailable in FHG.'),
+        subtitle: Text('Locked to 127.0.0.1:12345. System Proxy, VPN, LAN sharing and WARP are unavailable in FHG.'),
       ),
     ),
   );
@@ -133,7 +133,7 @@ class InboundOptionsPage extends StatelessWidget {
       ),
       ListTile(
         leading: Icon(Icons.settings_ethernet_rounded),
-        title: Text('127.0.0.1:12334'),
+        title: Text('127.0.0.1:12345'),
         subtitle: Text('Fixed local mixed SOCKS5 proxy. LAN sharing is disabled.'),
       ),
       ListTile(
@@ -245,7 +245,7 @@ replace(p,
 
 # Assert all important invariants statically, before any expensive Flutter build.
 config = (root / "lib/features/settings/data/config_option_repository.dart").read_text(encoding="utf-8")
-for marker in ("'mixed-port': 12334", "'enable-tun': false", "'set-system-proxy': false",
+for marker in ("'mixed-port': 12345", "'enable-tun': false", "'set-system-proxy': false",
                "'allow-connection-from-lan': false", "'chain-status': ChainStatus.off.key"):
     assert marker in config, f"Missing enforced config invariant {marker}"
 assert "const EnableAnalyticsPrefTile()" not in (root / "lib/features/settings/overview/sections/general_page.dart").read_text()

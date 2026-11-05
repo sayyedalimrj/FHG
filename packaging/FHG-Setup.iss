@@ -9,6 +9,7 @@ AppVersion={#FhgVersion}
 AppVerName=FHG Browser {#FhgVersion}
 AppPublisher=FHG Community
 AppPublisherURL=https://github.com/sayyedalimrj/FHG
+SourceDir=..
 DefaultDirName={localappdata}\Programs\FHG Browser
 DefaultGroupName=FHG Browser
 UninstallDisplayIcon={app}\FHG.exe

@@ -165,16 +165,23 @@ replace(p,
   return preferences.getBool(enableAnalyticsPrefKey) ?? false;
 }''',
     '''bool readAnalyticsEnabled(SharedPreferences preferences) => false; // FHG privacy rule''')
-replace(p,
-    '''  Future<void> enableAnalytics() async {
-    if (state case AsyncData(value: final enabled)) {''',
-    '''  Future<void> enableAnalytics() async {
-    // FHG does not permit enabling analytics from any UI or code path.
+# Remove the entire enabling implementation (including Sentry initialization).
+import re
+analytics_path = root / p
+analytics_text = analytics_path.read_text(encoding="utf-8")
+pattern = r"  Future<void> enableAnalytics\(\) async \{.*?(?=  Future<void> disableAnalytics\(\) async \{)"
+replacement = """  Future<void> enableAnalytics() async {
+    // FHG forcibly disables crash reporting, even for old saved preferences.
     await _preferences.setBool(enableAnalyticsPrefKey, false);
     await Sentry.close();
     state = const AsyncData(false);
-    return;
-    if (state case AsyncData(value: final enabled)) {''')
+  }
+
+"""
+analytics_text, count = re.subn(pattern, replacement, analytics_text, flags=re.DOTALL)
+if count != 1:
+    raise SystemExit(f"Analytics enforcement patch mismatch: found {count} implementations")
+analytics_path.write_text(analytics_text, encoding="utf-8", newline="\n")
 replace(p,
     '''    return readAnalyticsEnabled(_preferences);''',
     '''    await _preferences.setBool(enableAnalyticsPrefKey, false);

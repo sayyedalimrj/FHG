@@ -57,6 +57,10 @@ internal sealed class AccountsWindow : Form
     };
     private readonly Dictionary<string, (Label code, Label time)> otpViews = new();
     private readonly System.Windows.Forms.Timer otpTimer = new() { Interval = 1000 };
+    // Clear only clipboard values this manager explicitly copied, and only if unchanged.
+    private readonly System.Windows.Forms.Timer clipboardTimer = new() { Interval = 1000 };
+    private string? lastSensitiveCopy;
+    private DateTimeOffset clipboardExpires;
     private FhgAccount[] accounts = Array.Empty<FhgAccount>();
     private string? selectedId;
 
@@ -123,6 +127,8 @@ internal sealed class AccountsWindow : Form
         root.Controls.Add(toolbar, 0, 1);
         toolbar.Controls.Add(MakeButton("+  Add account", AddAccount, true, 156));
         toolbar.Controls.Add(MakeButton("Open selected", () => ActivateAccount(Selected()), false, 151));
+        toolbar.Controls.Add(MakeButton("Copy username", () => CopyUsername(Selected()), false, 147));
+        toolbar.Controls.Add(MakeButton("Copy password", () => CopyPassword(Selected()), false, 147));
         toolbar.Controls.Add(MakeButton("Change subscription", EditSubscription, false, 171));
         toolbar.Controls.Add(MakeButton("FHG Proxy", OpenProxy, false, 122));
         toolbar.Controls.Add(MakeButton("Refresh", RefreshCards, false, 101));
@@ -142,6 +148,13 @@ internal sealed class AccountsWindow : Form
 
         otpTimer.Tick += (_, _) => UpdateAllCodes();
         otpTimer.Start();
+        clipboardTimer.Tick += (_, _) =>
+        {
+            if (lastSensitiveCopy != null && DateTimeOffset.UtcNow >= clipboardExpires)
+                ClearOwnedClipboard();
+        };
+        clipboardTimer.Start();
+        FormClosed += (_, _) => ClearOwnedClipboard();
         LoadCards();
 
         Shown += (_, _) =>
@@ -216,7 +229,7 @@ internal sealed class AccountsWindow : Form
         var card = new Panel
         {
             Width = Math.Max(690, cards.ClientSize.Width - 58),
-            Height = 146, BackColor = selected ? Color.FromArgb(239, 248, 255) : Color.White,
+            Height = 190, BackColor = selected ? Color.FromArgb(239, 248, 255) : Color.White,
             BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 0, 0, 13),
             Tag = account.Id, Cursor = Cursors.Hand
         };
@@ -255,7 +268,7 @@ internal sealed class AccountsWindow : Form
         var setupLink = new LinkLabel
         {
             Text = "Copy setup link for Firefox Authenticator",
-            Left = 26, Top = 116, Width = 340, Height = 22,
+            Left = 26, Top = 115, Width = 400, Height = 22,
             LinkColor = Accent, ActiveLinkColor = Mint, Font = SmallFont,
             Cursor = Cursors.Hand
         };
@@ -275,13 +288,17 @@ internal sealed class AccountsWindow : Form
             Left = card.Width - 143, Top = 22, Width = 110, Height = 25
         };
         card.Controls.Add(countdown);
+        var copyUsername = MakeButton("Copy username", () => CopyUsername(account), false, 142);
+        copyUsername.Left = 25; copyUsername.Top = 144; copyUsername.Height = 36;
+        card.Controls.Add(copyUsername);
+        var copyPassword = MakeButton("Copy password", () => CopyPassword(account), false, 142);
+        copyPassword.Left = 180; copyPassword.Top = 144; copyPassword.Height = 36;
+        card.Controls.Add(copyPassword);
         var copy = MakeButton("Copy 2FA", () => CopyCode(account), false, 132);
-        copy.Left = card.Width - 310; copy.Top = 83; copy.Height = 39;
-        copy.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        copy.Left = 335; copy.Top = 144; copy.Height = 36;
         card.Controls.Add(copy);
         var open = MakeButton(active ? "Open Firefox" : "Activate", () => ActivateAccount(account), true, 132);
-        open.Left = card.Width - 164; open.Top = 83; open.Height = 39;
-        open.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        open.Left = 480; open.Top = 144; open.Height = 36;
         card.Controls.Add(open);
         card.Resize += (_, _) =>
         {
@@ -348,11 +365,50 @@ internal sealed class AccountsWindow : Form
 
     private void CopyCode(FhgAccount account)
     {
-        // Only explicit direct user click copies a short-lived TOTP code.
+        // One-time codes must not remain on the clipboard indefinitely.
         string code = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
-        Clipboard.SetText(code);
-        status.Text = "6-digit code copied for " + account.Label +
-                      ". Clipboard contents are visible to applications in your Windows session.";
+        CopySensitive(code, "6-digit code", 25);
+    }
+
+    private void CopyUsername(FhgAccount account) =>
+        CopySensitive(account.Label, "Username", 45);
+
+    private void CopyPassword(FhgAccount account)
+    {
+        // Decrypted only for the current Windows user; never inject into an unverified origin.
+        CopySensitive(account.Password, "Password", 35);
+    }
+
+    private void CopySensitive(string value, string description, int seconds)
+    {
+        if (string.IsNullOrEmpty(value)) throw new InvalidOperationException("Empty account field.");
+        Clipboard.SetText(value);
+        lastSensitiveCopy = value;
+        clipboardExpires = DateTimeOffset.UtcNow.AddSeconds(seconds);
+        status.Text = description + " copied locally. Paste only into the intended " +
+                      "ChatGPT sign-in page or trusted Authenticator import view. " +
+                      "FHG will clear its clipboard value after " + seconds + " seconds.";
+    }
+
+    private void ClearOwnedClipboard()
+    {
+        string? previous = lastSensitiveCopy;
+        lastSensitiveCopy = null;
+        if (previous is null) return;
+        try
+        {
+            // Preserve newer clipboard content from other apps or user actions.
+            if (Clipboard.ContainsText() &&
+                string.Equals(Clipboard.GetText(), previous, StringComparison.Ordinal))
+            {
+                Clipboard.Clear();
+                status.Text = "FHG temporary clipboard contents cleared.";
+            }
+        }
+        catch
+        {
+            // Clipboard may be held by another process. Do not clear unrelated data.
+        }
     }
 
     private void CopyAuthenticatorSetup(FhgAccount account)
@@ -366,8 +422,8 @@ internal sealed class AccountsWindow : Form
         string uri = "otpauth://totp/ChatGPT:" + label
             + "?secret=" + Uri.EscapeDataString(seed)
             + "&issuer=ChatGPT&algorithm=SHA1&digits=6&period=30";
-        Clipboard.SetText(uri);
-        status.Text = "Confidential Authenticator setup link copied. In Firefox click Authenticator > Settings > Backup > Import > Import Text Backup, then paste.";
+        CopySensitive(uri, "Confidential Authenticator setup link", 60);
+        status.Text = "Authenticator setup link copied for 60 seconds. In FHG Firefox open Authenticator > Settings > Backup > Import > Import Text Backup and paste. The extension must confirm the import.";
     }
 
     private void AddAccount()
@@ -408,6 +464,7 @@ internal sealed class AccountsWindow : Form
             return;
         }
 
+        ClearOwnedClipboard();
         AccountVault.SetActive(account.Id);
         LoadCards(account.Id);
         string? ticket = null;

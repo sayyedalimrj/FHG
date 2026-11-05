@@ -51,6 +51,8 @@ jobs:
           foreach ($p in @('publish-host/FHGNativeHost.exe','publish-accounts/FHGAccountManager.exe','publish-launcher/FHG.exe')) {
             if (!(Test-Path $p)) { throw "Missing native binary: $p" }
           }
+          python native/auth-native-host/test_protocol.py publish-host/FHGNativeHost.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Native Messaging caller/origin protocol regression failed' }
       - name: Preserve auditable extension source package
         shell: pwsh
         run: |

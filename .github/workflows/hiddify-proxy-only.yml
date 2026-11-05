@@ -392,7 +392,30 @@ jobs:
             installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe.sha256
           retention-days: 7
           if-no-files-found: error
+      - name: Publish downloadable unsigned FHG test installer on GitHub Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature-exe-installer-dpapi-accounts-20261105'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag='v0.6.0-test.1'
+          $setup='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          $hash="$setup.sha256"
+          if (!(Test-Path $setup) -or !(Test-Path $hash) -or !(Test-Path FHG-HIDDIFY-SOURCE.patch)) {
+            throw 'Complete test release files not found; cannot publish.'
+          }
+          $actual=(Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected=((Get-Content $hash -Raw).Trim() -split '\s+')[0]
+          if ($actual -ne $expected) {throw "Installer digest mismatch: $actual"}
+          $existing=gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            throw "Test release $tag already exists; refusing to overwrite a tested binary."
+          }
+          gh release create $tag $setup $hash FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG v0.6.0-test.1 — Windows Setup EXE (UNSIGNED TEST BUILD)' --notes-file docs/RELEASE-v0.6.0-test.1.md --prerelease --latest=false
+          if ($LASTEXITCODE -ne 0) {throw 'GitHub Release upload failed'}
+          Write-Host "PASS: test release published, SHA256 $actual"
       - name: Package complete offline test artifact
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
           $z='C:\Program Files\7-Zip\7z.exe'
@@ -427,6 +450,7 @@ jobs:
           Write-Host "PASS: standard ZIP $regular bytes; compact 7z $smaller bytes; reduction $saved percent; SHA256 $cHash"
           if ($smaller -ge $regular) {throw 'Compact distribution did not achieve any size reduction'}
       - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
         with:
           name: FHG-ProxyOnly-12345-Windows-x64-rc2
           path: |
@@ -436,28 +460,6 @@ jobs:
             FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1-Compact.7z.sha256
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
-      - name: Publish downloadable unsigned FHG test installer on GitHub Releases
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feature-exe-installer-dpapi-accounts-20261105'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag='v0.6.0-test.1'
-          $setup='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
-          $hash="$setup.sha256"
-          if (!(Test-Path $setup) -or !(Test-Path $hash) -or !(Test-Path FHG-HIDDIFY-SOURCE.patch)) {
-            throw 'Complete test release files not found; cannot publish.'
-          }
-          $actual=(Get-FileHash $setup -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected=((Get-Content $hash -Raw).Trim() -split '\s+')[0]
-          if ($actual -ne $expected) {throw "Installer digest mismatch: $actual"}
-          $existing=gh release view $tag --repo $env:GITHUB_REPOSITORY --json tagName 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            throw "Test release $tag already exists; refusing to overwrite a tested binary."
-          }
-          gh release create $tag $setup $hash FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG v0.6.0-test.1 — Windows Setup EXE (UNSIGNED TEST BUILD)' --notes-file docs/RELEASE-v0.6.0-test.1.md --prerelease --latest=false
-          if ($LASTEXITCODE -ne 0) {throw 'GitHub Release upload failed'}
-          Write-Host "PASS: test release published, SHA256 $actual"
       - name: Publish signed and device-approved FHG Setup EXE prerelease
         if: github.ref == 'refs/heads/main' && vars.FHG_RELEASE_APPROVED == 'yes' && vars.FHG_E2E_APPROVED == 'yes' && vars.FHG_LICENSE_APPROVED == 'yes'
         shell: pwsh

@@ -109,16 +109,11 @@ internal sealed class AccountsWindow : Form
         otpTimer.Tick += (_, _) => RefreshOtpDisplay();
         list.SelectedIndexChanged += (_, _) => { shownOtpId = null; otp.Text = ""; };
         LoadAccounts();
+        // The first-run experience is a file picker, not a proxy dashboard
+        // or a chain of redundant configuration dialogs.
         Shown += (_, _) => {
             if (accounts.Length == 0)
-                BeginInvoke(new Action(() => {
-                    MessageBox.Show(this,
-                        "Import a LOCAL 4-line file to create your first FHG account.\n\n" +
-                        "Your password and TOTP seed are encrypted using Windows DPAPI. " +
-                        "ChatGPT login is done in Firefox, not by injecting your credentials.",
-                        "Welcome to FHG", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    Add();
-                }));
+                BeginInvoke(new Action(Add));
         };
     }
 
@@ -181,11 +176,9 @@ internal sealed class AccountsWindow : Form
 
         var account = AccountVault.ImportFourLineFile(dialog.FileName);
         LoadAccounts(account.Id);
-        if (MessageBox.Show(this,
-            "Account archived locally. Activate it and import its subscription now?\n\n" +
-            "Close any running FHG Proxy and FHG Firefox instances before switching.",
-            "Activate account", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
-            == DialogResult.Yes) ActivateAccount();
+        // User already confirmed secure local import. Automatically request
+        // subscription activation; never bounce them back to old manual UI.
+        ActivateAccount();
     }
 
     private void ActivateAccount()

@@ -168,6 +168,8 @@ jobs:
       - name: Build self-contained FHG Account Manager EXE
         shell: pwsh
         run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+          if ($LASTEXITCODE -ne 0) {throw 'FHG account-manager icon generation failed'}
           dotnet publish native/account-manager/FHGAccountManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-accounts
           if ($LASTEXITCODE -ne 0) {throw 'FHGAccountManager compile failed'}
           if (!(Test-Path publish-accounts/FHGAccountManager.exe)) {throw 'Standalone account manager EXE missing'}

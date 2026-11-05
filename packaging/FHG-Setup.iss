@@ -44,6 +44,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "stage\FHG.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\FHGGuard.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\FHGAccountManager.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\FHGNativeHost.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "stage\Firefox\*"; DestDir: "{app}\Firefox"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\Hiddify\*"; DestDir: "{app}\Hiddify"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs
@@ -58,3 +59,43 @@ Name: "{userprograms}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; Wo
 
 [Run]
 Filename: "{app}\FHGAccountManager.exe"; Description: "Open FHG Accounts and complete your initial setup"; Flags: nowait postinstall skipifsilent
+
+; Register only a properly signed FHG extension's native messaging host.
+; The manifest contains no credentials. A prior Mozilla extension's data is not deleted.
+[Code]
+const
+  HostRegistry = 'Software\Mozilla\NativeMessagingHosts\fhg.authenticator';
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  InstallPath, HostExe, ManifestPath, Payload, SignedAddon: String;
+begin
+  if CurStep <> ssPostInstall then Exit;
+  InstallPath := ExpandConstant('{app}');
+  SignedAddon := AddBackslash(InstallPath) + 'Firefox\distribution\fhg-auto-authenticator.xpi';
+  HostExe := AddBackslash(InstallPath) + 'FHGNativeHost.exe';
+  if not FileExists(SignedAddon) then Exit;
+  if not FileExists(HostExe) then
+    RaiseException('Signed FHG Authenticator included without native host');
+  ManifestPath := AddBackslash(InstallPath) + 'FHGNativeHost.json';
+  Payload := '{"name":"fhg.authenticator","description":"Local FHG DPAPI vault bridge","path":"' +
+    StringChangeEx(HostExe, '\', '\\', True) +
+    '","type":"stdio","allowed_extensions":["fhg-authenticator@fhg.local"]}';
+  if not SaveStringToFile(ManifestPath, Payload, False) then
+    RaiseException('Cannot create FHG Authenticator native messaging manifest');
+  if not RegWriteStringValue(HKCU, HostRegistry, '', ManifestPath) then
+    RaiseException('Cannot register FHG Firefox native messaging host');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Prior: String;
+begin
+  if CurUninstallStep <> usUninstall then Exit;
+  if RegQueryStringValue(HKCU, HostRegistry, '', Prior) then
+    if CompareText(Prior, ExpandConstant('{app}\FHGNativeHost.json')) = 0 then
+      RegDeleteKeyIncludingSubkeys(HKCU, HostRegistry);
+end;
+
+[UninstallDelete]
+Type: files; Name: "{app}\FHGNativeHost.json"

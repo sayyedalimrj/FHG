@@ -3,6 +3,8 @@ on:
   push:
     paths:
       - 'packaging/patch-hiddify-proxy-only.py'
+      - 'firefox/distribution/policies.json'
+      - 'packaging/trim-firefox-safe.ps1'
       - '.github/workflows/hiddify-proxy-only.yml'
       - 'docs/HIDDIFY-PROXY-ONLY.md'
   workflow_dispatch:
@@ -120,6 +122,18 @@ jobs:
           $sig=Get-AuthenticodeSignature stage/Hiddify/Hiddify.exe
           Write-Host 'Patched Hiddify signature status:' $sig.Status
           Write-Host 'Patched Hiddify SHA256:' (Get-FileHash stage/Hiddify/Hiddify.exe -Algorithm SHA256).Hash
+      - name: Slim isolated FHG Firefox safely for AI websites
+        shell: pwsh
+        run: |
+          Copy-Item firefox/distribution/policies.json stage/Firefox/distribution/policies.json -Force
+          ./packaging/trim-firefox-safe.ps1 -FirefoxDirectory stage/Firefox
+          $p=Get-Content 'stage/Firefox/distribution/policies.json' -Raw | ConvertFrom-Json
+          if ($p.policies.Proxy.SOCKSProxy -ne '127.0.0.1:12334' -or
+              !$p.policies.Proxy.Locked -or !$p.policies.Proxy.UseProxyForDNS -or
+              !$p.policies.DisableAppUpdate) {throw 'Firefox proxy or update lock weakened'}
+          if ($p.policies.NewTabPage -ne $false -or
+              !$p.policies.DisableFirefoxAccounts) {throw 'AI-oriented Firefox defaults missing'}
+          Write-Host 'PASS: AI focused Firefox compact UI and safe trim applied to complete Windows bundle.'
       - name: Package complete offline test artifact
         shell: pwsh
         run: |

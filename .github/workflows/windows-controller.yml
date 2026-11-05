@@ -136,7 +136,8 @@ jobs:
 
   release:
     # Old releases are historical only, never automatically republished.
-    if: ${{ false }}    name: Publish FHG alpha to GitHub Releases
+    if: ${{ false }}
+    name: Publish FHG alpha to GitHub Releases
     needs: [build]
     runs-on: ubuntu-latest
     permissions:

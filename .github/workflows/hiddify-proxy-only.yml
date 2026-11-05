@@ -1,4 +1,7 @@
 name: FHG patched Hiddify Proxy-only Windows
+concurrency:
+  group: fhg-proxy-only-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]

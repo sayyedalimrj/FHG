@@ -100,6 +100,27 @@ jobs:
         run: |
           set -euo pipefail
           make windows-prepare
+      - name: Hiddify behavior tests (subscription parsing, persistence, startup, network, nodes)
+        shell: pwsh
+        working-directory: vendor
+        env:
+          SENTRY_DSN: ''
+        run: |
+          $tests=@(
+            'test/core/http_client/user_agent_test.dart',
+            'test/features/profile/data/profile_parser_test.dart',
+            'test/features/profile/data/profile_repository_test.dart',
+            'test/features/settings/data/config_option_repository_test.dart',
+            'test/features/connection/model/startup_connection_test.dart',
+            'test/features/connection/notifier/disconnect_completes_test.dart',
+            'test/features/proxy/connection_health_test.dart',
+            'test/hiddifycore/core_interface/start_once_stopped_test.dart'
+          )
+          foreach($file in $tests) {
+            Write-Host "Testing Hiddify behavior: $file"
+            flutter test $file --reporter expanded
+            if ($LASTEXITCODE -ne 0) {throw "Hiddify functional regression failed: $file"}
+          }
       - name: Compile patched native Windows Flutter UI
         shell: pwsh
         working-directory: vendor

@@ -123,6 +123,12 @@ replace("lib/features/system_tray/notifier/system_tray_notifier.dart",
         """    }
     // FHG never accepts a system-proxy / VPN switch from the tray menu.""")
 
+# Upstream Makefile pipes a 504/502 HTML error into tar (without curl -f),
+# causing flaky CI; make core-library acquisition retry and fail on HTTP errors.
+replace("Makefile",
+        "curl -L $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/",
+        "curl -fSL --retry 8 --retry-all-errors --retry-delay 6 --connect-timeout 25 --max-time 420 $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/")
+
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

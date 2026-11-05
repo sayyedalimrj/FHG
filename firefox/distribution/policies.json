@@ -88,6 +88,7 @@
         "install_url": "https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi",
         "default_area": "navbar"
       }
-    }
+    },
+    "DisableProfileImport": true
   }
 }

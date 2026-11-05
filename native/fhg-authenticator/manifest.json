@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "FHG Authenticator",
+  "version": "0.7.0",
+  "description": "Local FHG account authenticator and official ChatGPT sign-in. Windows DPAPI, no browser storage of passwords or OTP seeds.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "fhg-authenticator@fhg.local",
+      "strict_min_version": "140.0"
+    }
+  },
+  "permissions": [
+    "nativeMessaging",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://auth.openai.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_title": "FHG Authenticator",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://auth.openai.com/*"
+      ],
+      "js": [
+        "login.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

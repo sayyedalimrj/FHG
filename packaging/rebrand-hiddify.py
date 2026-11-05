@@ -77,7 +77,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''      try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''',
         '''      if (!core.isInitialized()) {
-        return left('FHG Proxy engine was not initialized. Internal gRPC port 27178 must be free; restart FHG Proxy and inspect its app.log.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG Proxy engine not ready. Internal control port 27178 may be blocked. Inspect FHG app.log and the local port owner.');
+        }
       }
       try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''')
@@ -86,7 +89,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
       // latestOptions = options;''',
         '''      loggy.debug("changing options");
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine has not initialized; cannot add or validate profiles. Check port 27178 and restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core did not start. Cannot change connection options. Check local port 27178 and FHG app.log.');
+        }
       }
       // latestOptions = options;''')
 replace("lib/hiddifycore/hiddify_core_service.dart",
@@ -96,7 +102,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''  TaskEither<String, String> generateFullConfigByPath(String path) {
     return TaskEither(() async {
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine not ready: internal gRPC port 27178. Restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core unavailable while parsing profile. Check 27178 listener, logs, and original Hiddify port conflicts.');
+        }
       }
       final response = await core.fgClient.parse''')
 

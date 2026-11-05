@@ -13,6 +13,8 @@ using System.Security.Cryptography;
 using System.Security.Principal;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Http;
+using System.Threading;
 using System.Windows.Forms;
 
 internal static class Program
@@ -86,8 +88,41 @@ internal static class Program
                 return 6;
             }
 
-            if (!StartOfficialHiddify()) return 3;
+            FirstRunRequest? firstRun = null;
+            if (!proxyOnly && !FirstRunWizard.Completed)
+            {
+                firstRun = FirstRunWizard.AskForLocalFile();
+            }
+
+            if (!StartOfficialHiddify(firstRun))
+            {
+                if (firstRun is not null) FirstRunWizard.CleanupTicket(firstRun);
+                return 3;
+            }
             if (proxyOnly) return 0;
+
+            if (firstRun is not null)
+            {
+                bool imported = WaitForSubscriptionReceipt(firstRun);
+                bool connected = imported && WaitForFhgProxyHttps(TimeSpan.FromSeconds(90));
+                if (!connected)
+                {
+                    FirstRunWizard.CleanupTicket(firstRun);
+                    Warn("FHG setup did NOT prove a working subscription and HTTPS proxy connection. " +
+                         "Firefox will remain closed to prevent silent direct-traffic fallback.\n\n" +
+                         "Use the FHG Proxy shortcut to inspect/import your subscription and run " +
+                         "FHG-Connection-Diagnostic.ps1 from the extracted folder.");
+                    return 9;
+                }
+                FirstRunWizard.MarkCompleted(firstRun);
+            }
+            else if (!WaitForFhgProxyHttps(TimeSpan.FromSeconds(15)))
+            {
+                Warn("FHG Proxy is not yet passing HTTPS through SOCKS5 127.0.0.1:12345. " +
+                     "Open FHG Proxy, connect a working node, and retry the FHG Firefox shortcut. " +
+                     "Firefox was not opened without a verified proxy.");
+                return 10;
+            }
 
             if (!File.Exists(FirefoxExe))
             {
@@ -135,7 +170,7 @@ internal static class Program
         }
     }
 
-    private static bool StartOfficialHiddify()
+    private static bool StartOfficialHiddify(FirstRunRequest? firstRun)
     {
         try
         {
@@ -149,7 +184,16 @@ internal static class Program
                 catch { return false; }
                 finally { p.Dispose(); }
             });
-            if (alreadyRunning) return true;
+            if (alreadyRunning)
+            {
+                if (firstRun is not null)
+                {
+                    Warn("FHG Proxy is already running. To import the one-time subscription, " +
+                         "close only FHG Proxy (not your original Hiddify) and retry.");
+                    return false;
+                }
+                return true;
+            }
 
             // Do not try to bind a port already used by the user's regular Hiddify.
             // If it is occupied, fail closed before Firefox can be started.
@@ -188,6 +232,12 @@ internal static class Program
                     Log("User opted in to existing loopback subscription bootstrap at port 12334.");
                 }
             }
+            if (firstRun is not null)
+            {
+                // Pass ONLY an unguessable user-local FILE PATH; never the
+                // subscription, password or TOTP key in process arguments.
+                childInfo.Environment["FHG_INITIAL_SUB_FILE"] = firstRun.SubscriptionFile;
+            }
             using var child = Process.Start(childInfo);
             if (child is null)
             {
@@ -201,6 +251,87 @@ internal static class Program
             Warn("Could not open Hiddify (" + ex.GetType().Name + "): " + ex.Message);
             return false;
         }
+    }
+
+    private static bool WaitForSubscriptionReceipt(FirstRunRequest setup)
+    {
+        using var progress = new Form
+        {
+            Text = "FHG — preparing subscription",
+            Width = 450,
+            Height = 140,
+            StartPosition = FormStartPosition.CenterScreen,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ControlBox = false,
+            FormBorderStyle = FormBorderStyle.FixedDialog
+        };
+        var label = new Label
+        {
+            Dock = DockStyle.Fill,
+            TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
+            Text = "Importing and validating the subscription in FHG Proxy..."
+        };
+        progress.Controls.Add(label);
+        progress.Show();
+        try
+        {
+            var end = DateTime.UtcNow + TimeSpan.FromSeconds(95);
+            while (DateTime.UtcNow < end)
+            {
+                Application.DoEvents();
+                if (File.Exists(setup.ReceiptFile))
+                {
+                    string status = File.ReadAllText(setup.ReceiptFile).Trim();
+                    if (status == "IMPORTED") return true;
+                    if (status == "FAILED") return false;
+                }
+                Thread.Sleep(400);
+            }
+            Log("First-run subscription import receipt timed out (no credentials logged).");
+            return false;
+        }
+        finally { progress.Close(); }
+    }
+
+    private static bool WaitForFhgProxyHttps(TimeSpan maxWait)
+    {
+        var end = DateTime.UtcNow + maxWait;
+        int attempts = 0;
+        while (DateTime.UtcNow < end)
+        {
+            attempts++;
+            try
+            {
+                // Explicit SOCKS5 route only. No default handler, system proxy
+                // or DIRECT fallback is used in this readiness check.
+                using var handler = new SocketsHttpHandler
+                {
+                    Proxy = new WebProxy("socks5://127.0.0.1:12345"),
+                    UseProxy = true,
+                    AllowAutoRedirect = false,
+                    ConnectTimeout = TimeSpan.FromSeconds(4)
+                };
+                using var client = new HttpClient(handler)
+                { Timeout = TimeSpan.FromSeconds(8) };
+                using var response = client.GetAsync("https://example.com/",
+                    HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+                if ((int)response.StatusCode >= 200 && (int)response.StatusCode < 400)
+                {
+                    Log("FHG SOCKS5 passed HTTPS check. No credentials were transmitted.");
+                    return true;
+                }
+            }
+            catch (Exception e)
+            {
+                if (attempts % 4 == 1)
+                    Log("FHG SOCKS5 HTTPS probe failed: " + e.GetType().Name);
+            }
+            Application.DoEvents();
+            Thread.Sleep(1200);
+        }
+        Log("FHG SOCKS5 HTTPS probe did not succeed.");
+        return false;
     }
 
     // Use the locally bundled, Mozilla-signed TOTP add-on when present, so

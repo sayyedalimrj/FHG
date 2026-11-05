@@ -214,6 +214,35 @@ if count != 1:
     raise SystemExit("Cannot disable upstream Hiddify startup update prompt")
 update_path.write_text(update_text, encoding="utf-8", newline="\n")
 
+# 6) Reduce end-user clutter without stripping internal diagnostic logging.
+# Desktop navigation and optional mobile Settings menu must both omit
+# About / Logs. Diagnostic files remain available to developers.
+p = "lib/core/router/adaptive_layout/my_adaptive_layout.dart"
+replace(p,
+    """    if (!isMobileBreakpoint) ShellRouteAction(Icons.description_rounded, t.pages.logs.title),
+    if (!isMobileBreakpoint) ShellRouteAction(Icons.info_rounded, t.pages.about.title),""",
+    """    // FHG: advanced logs/about screens intentionally hidden from user navigation.""")
+p = "lib/features/settings/overview/settings_page.dart"
+replace(p,
+    """          if (Breakpoint(context).isMobile()) ...[
+            SettingsSection(
+              title: t.pages.logs.title,
+              icon: Icons.description_rounded,
+              namedLocation: context.namedLocation('logs'),
+            ),
+            SettingsSection(
+              title: t.pages.about.title,
+              icon: Icons.info_rounded,
+              namedLocation: context.namedLocation('about'),
+            ),
+          ],""",
+    """          // FHG: optional log/about menu entries removed from settings.""")
+# English for a new installation; respect existing explicit language selections.
+p = "lib/core/localization/locale_preferences.dart"
+replace(p,
+    '''    if (persisted == null) return AppLocaleUtils.findDeviceLocale();''',
+    '''    if (persisted == null) return AppLocale.en; // FHG fresh-install default''')
+
 # Assert all important invariants statically, before any expensive Flutter build.
 config = (root / "lib/features/settings/data/config_option_repository.dart").read_text(encoding="utf-8")
 for marker in ("'mixed-port': 12334", "'enable-tun': false", "'set-system-proxy': false",

@@ -24,7 +24,7 @@ jobs:
     runs-on: windows-2022
     timeout-minutes: 65
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Checkout pinned upstream Hiddify
         shell: pwsh
         run: |

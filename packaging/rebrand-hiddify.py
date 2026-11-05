@@ -188,114 +188,14 @@ replace("Makefile",
         "curl -L $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/",
         "curl -fSL --retry 8 --retry-all-errors --retry-delay 6 --connect-timeout 25 --max-time 420 $(CORE_URL)/$(CORE_NAME)-windows-amd64.tar.gz | tar xz -C $(DESKTOP_OUT)/")
 
-# FHG subscription fetches are permitted to use the *user-approved*
-# existing Hiddify on loopback:12334 for bootstrap. The FHG browser stays
-# exclusively on its own 12345 with its app-scoped WFP guard. Never attempt
-# direct fallback after an explicitly selected local proxy.
+# FHG subscription fetches may use only the user-approved loopback:12334
+# bootstrap. This DOES NOT change Firefox (which always uses guarded :12345).
 replace("lib/core/http_client/dio_http_client.dart",
         """          final client = HttpClient()..userAgent = userAgent;
           client.findProxy = (url) {""",
         """          final client = HttpClient()..userAgent = userAgent;
           final bootstrap = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] ?? '';
-          final safeBootstrap = RegExp(r'^127\\.0\\.0\\.1:12334
-repo = Path(__file__).resolve().parents[1]
-icon_src = repo / "native/app/resources/generate_icon.py"
-spec = importlib.util.spec_from_file_location("fhg_icon", icon_src)
-assert spec is not None and spec.loader is not None
-brand = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(brand)
-
-def styled_png(size: int, status: str = "none") -> bytes:
-    source = brand.artwork(size)
-    if status == "none":
-        return source
-    # The original PNG from the FHG icon generator has one IDAT and RGBA rows.
-    pos = 8
-    chunks = []
-    pixels = None
-    while pos < len(source):
-        length = struct.unpack(">I", source[pos:pos+4])[0]
-        name = source[pos+4:pos+8]
-        value = source[pos+8:pos+8+length]
-        pos += 12 + length
-        if name == b"IDAT":
-            pixels = bytearray(zlib.decompress(value))
-        else:
-            chunks.append((name, value))
-    if pixels is None or len(pixels) != (size*4+1)*size:
-        raise SystemExit("FHG icon generator changed unexpectedly")
-    cx, cy, radius = .80*size, .81*size, .14*size
-    fill = (18, 188, 115, 255) if status=="connected" else (235, 75, 76, 255)
-    for y in range(size):
-        for x in range(size):
-            dist = ((x+0.5-cx)**2 + (y+0.5-cy)**2)**.5
-            if dist > radius: continue
-            offset = y*(size*4+1)+1+x*4
-            pixels[offset:offset+4] = bytes((255,255,255,255) if dist>=radius-max(1,size*.024) else fill)
-    out=b"\x89PNG\r\n\x1a\n"
-    for name,value in chunks:
-        if name==b"IEND":
-            out+=brand.png_chunk(b"IDAT",zlib.compress(bytes(pixels),9))
-        out+=brand.png_chunk(name,value)
-    return out
-
-def ico(status: str) -> bytes:
-    sizes=[16,24,32,48,64,128,256]
-    images=[styled_png(sz,status) for sz in sizes]
-    buf=bytearray(struct.pack("<HHH",0,1,len(sizes)))
-    offset=6+16*len(sizes)
-    for n,img in zip(sizes,images):
-        buf.extend(struct.pack("<BBBBHHII",n if n<256 else 0,n if n<256 else 0,0,0,1,32,len(img),offset))
-        offset+=len(img)
-    for img in images: buf.extend(img)
-    return bytes(buf)
-
-iconfiles = {
-    "windows/runner/resources/app_icon.ico": ico("none"),
-    "assets/images/tray_icon.ico": ico("none"),
-    "assets/images/tray_icon_dark.ico": ico("none"),
-    "assets/images/tray_icon_connected.ico": ico("connected"),
-    "assets/images/tray_icon_disconnected.ico": ico("disconnected"),
-}
-for rel,data in iconfiles.items():
-    (root/rel).write_bytes(data)
-    print(f"ICON {rel}: {len(data)} bytes")
-pngfiles = {
-    "assets/images/tray_icon.png": "none",
-    "assets/images/tray_icon_dark.png": "none",
-    "assets/images/tray_icon_connected.png": "connected",
-    "assets/images/tray_icon_connected_dark.png": "connected",
-    "assets/images/tray_icon_connected_light.png": "connected",
-    "assets/images/tray_icon_connected_outlined.png": "connected",
-    "assets/images/tray_icon_disconnected.png": "disconnected",
-}
-for rel,status in pngfiles.items():
-    (root/rel).write_bytes(styled_png(128,status))
-    print(f"ICON {rel}")
-(root/"assets/images/logo.svg").write_text(
-    """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
-<rect width="180" height="180" rx="36" fill="#102c44"/>
-<path d="M90 24 L142 45 L139 107 Q132 138 90 157 Q48 138 41 107 L38 45 Z" fill="#12bba7"/>
-<path d="M90 37 L128 53 L126 103 Q120 126 90 143 Q60 126 54 103 L52 53 Z" fill="#113750"/>
-<rect x="70" y="84" width="40" height="38" rx="5" fill="#ecfbf9"/>
-<path d="M78 86 V77 a12 12 0 0 1 24 0 V86" stroke="#ecfbf9" stroke-width="7" fill="none"/>
-<circle cx="90" cy="103" r="5" fill="#113750"/>
-</svg>
-""",encoding="utf-8",newline="\n")
-
-checks = {
-    "windows/CMakeLists.txt": 'set(BINARY_NAME "FHGProxy")',
-    "windows/runner/main.cpp": "FHGProxyMutex",
-    "windows/runner/Runner.rc": '"FHG Proxy"',
-    "lib/core/directories/directories_provider.dart": "fhg_proxy_portable_data",
-    "lib/core/preferences/preferences_provider.dart": "fhg_proxy.",
-    "lib/core/model/constants.dart": '"FHG Proxy"',
-}
-for rel,expected in checks.items():
-    assert expected in (root/rel).read_text(encoding="utf-8"), f"Missing FHG identity: {rel}"
-assert "HiddifyMutex" not in (root/"windows/runner/main.cpp").read_text(encoding="utf-8")
-print("PASS: distinct FHG Proxy executable, mutex/window/tray/icons, dedicated portable data and no URL-handler takeover.")
-).hasMatch(bootstrap);
+          final safeBootstrap = RegExp(r'^127\.0\.0\.1:12334$').hasMatch(bootstrap);
           client.findProxy = (url) {""")
 replace("lib/core/http_client/dio_http_client.dart",
         """            } else if (mode == "direct") {
@@ -304,10 +204,9 @@ replace("lib/core/http_client/dio_http_client.dart",
               return "PROXY $proxy; DIRECT";
             }""",
         """            } else if (mode == "direct") {
-              // Opt-in only: never silently leak subscription credentials to
-              // a different local proxy. No DIRECT fallback if enabled.
               return safeBootstrap ? "PROXY $bootstrap" : "DIRECT";
             } else {
+              // No direct fallback when the user's FHG proxy is active.
               return "PROXY $proxy";
             }""")
 replace("lib/core/http_client/dio_http_client.dart",
@@ -317,8 +216,8 @@ replace("lib/core/http_client/dio_http_client.dart",
     if (port <= 0 || port > 65535) return false;
     try {""")
 
-# An unavailable subscription endpoint must NOT leave a modal with
-# "Adding profile..." indefinitely, nor print bearer-token URLs in errors.
+# Remote subscriptions can be unreachable before proxy connection. The import
+# must time out (rather than spin forever), with sanitized failure messages.
 replace("lib/features/profile/data/profile_parser.dart",
         "import 'dart:convert';",
         "import 'dart:async';\nimport 'dart:convert';")
@@ -345,16 +244,16 @@ replace("lib/features/profile/data/profile_parser.dart",
       ).timeout(const Duration(seconds: 40), onTimeout: () {
         token.cancel('FHG subscription fetch timed out');
         throw const ProfileFailure.invalidUrl(
-          'Subscription download timed out. Connect an available local proxy (or use a local config file) and retry.',
+          'Subscription download timed out. Enable a trusted local bootstrap proxy or import a local config.',
         );
       });
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
         throw const ProfileFailure.cancelByUser('Subscription download was canceled.');
       }
-      // Do not surface DioException URLs: they can contain subscription secrets.
+      // Do not expose DioException URLs; they can contain subscription tokens.
       throw const ProfileFailure.invalidUrl(
-        'Subscription could not be downloaded. Check your connection and subscription source, or use local import.',
+        'Subscription could not be downloaded. Check proxy connection or use local import.',
       );
     }""")
 # Original graphic is generated in FHG and is not an upstream trademark.

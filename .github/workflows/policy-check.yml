@@ -39,7 +39,8 @@ jobs:
           launcher=Path("native/original-ui/Program.cs").read_text(encoding="utf-8")
           account_paths=Path("native/original-ui/AccountPaths.cs").read_text(encoding="utf-8")
           installer=Path("packaging/FHG-Setup.iss").read_text(encoding="utf-8")
-          assert 'Path.Combine(Root, "Firefox", "firefox.exe")' in launcher
+          assert 'Path.Combine(Root, "Firefox")' in launcher
+          assert 'Path.Combine(FirefoxDir, "firefox.exe")' in launcher
           assert 'browser.ArgumentList.Add("-no-remote")' in launcher
           assert 'browser.ArgumentList.Add("-profile")' in launcher
           assert 'browser.ArgumentList.Add(ProfileDir)' in launcher

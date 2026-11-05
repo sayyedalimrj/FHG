@@ -8,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 
 internal static class Program
@@ -57,6 +59,12 @@ internal static class Program
                 Warn("The bundled Firefox executable is missing. Hiddify remains usable.");
                 return 4;
             }
+            if (!ConfigureBundledTotp())
+            {
+                Warn("The bundled authenticator extension failed integrity verification. Firefox was not started. " +
+                     "Re-extract a clean official FHG release; never use an unknown TOTP add-on.");
+                return 8;
+            }
             if (!VerifyFirefoxPolicy())
             {
                 Warn("FHG Firefox proxy policy is missing or changed. Firefox was NOT started.\n\nHiddify can still be used normally.");
@@ -64,7 +72,9 @@ internal static class Program
             }
             if (!EnsureGuard())
             {
-                Warn("Firefox was not opened because the network guard did not pass verification.\n\nSee the exact failure in:\n" + GuardLog + "\n\nThe Hiddify subscription interface remains available.");
+                Warn("FHG did not open Firefox because its Windows network guard is not installed or verified.\n\n" +
+                     "On the next launch, choose YES to install the FHG guard, then approve the Windows UAC administrator prompt.\n" +
+                     "If you cancel UAC, Firefox stays closed to prevent direct traffic.\n\nDetails: " + GuardLog);
                 return 6;
             }
 
@@ -138,6 +148,48 @@ internal static class Program
         catch (Exception ex)
         {
             Warn("Could not open Hiddify (" + ex.GetType().Name + "): " + ex.Message);
+            return false;
+        }
+    }
+
+    // Use the locally bundled, Mozilla-signed TOTP add-on when present, so
+    // the extension is available without network access on first Firefox start.
+    // Never embed TOTP secrets in any policy, file or launch argument.
+    private static bool ConfigureBundledTotp()
+    {
+        try
+        {
+            string addon = Path.Combine(FirefoxDir, "distribution", "fhg-totp.xpi");
+            if (!File.Exists(addon)) return true; // Fallback to official AMO install URL.
+
+            string checksum = addon + ".sha256";
+            if (!File.Exists(checksum)) return false;
+            string expected = File.ReadAllText(checksum)
+                .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .FirstOrDefault() ?? "";
+            string actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(addon)));
+            if (expected.Length != 64 || !string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+            {
+                Log("Bundled TOTP add-on checksum mismatch; refusing to install it.");
+                return false;
+            }
+
+            string policyPath = Path.Combine(FirefoxDir, "distribution", "policies.json");
+            var doc = JsonNode.Parse(File.ReadAllText(policyPath));
+            if (doc?["policies"] is not JsonObject policies) return false;
+            if (policies["Extensions"] is not JsonObject extSettings) return false;
+            string localUri = new Uri(addon).AbsoluteUri;
+            var installs = extSettings["Install"] as JsonArray;
+            if (installs is null) return false;
+            if (installs.Count == 1 && installs[0]?.GetValue<string>() == localUri) return true;
+            extSettings["Install"] = new JsonArray(JsonValue.Create(localUri));
+            File.WriteAllText(policyPath, doc.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Log("Bundled TOTP extension configured for local Firefox installation (SHA256 verified).");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log("TOTP packaging verification failed (" + e.GetType().Name + "): " + e.Message);
             return false;
         }
     }
@@ -237,6 +289,12 @@ internal static class Program
             if (!verified)
                 Log("Elevated install succeeded but unelevated WFP verification failed. Check Authenticated Users read ACL and BFE status.");
             return verified;
+        }
+        catch (System.ComponentModel.Win32Exception e) when (e.NativeErrorCode == 1223)
+        {
+            // ERROR_CANCELLED is a declined UAC prompt, not a WFP regression.
+            Log("FHG WFP guard installation was canceled at the Windows UAC prompt (1223).");
+            return false;
         }
         catch (Exception e)
         {

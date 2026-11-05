@@ -29,7 +29,13 @@ $optionalPaths=@(
     'uninstall/helper.exe',
     'maintenanceservice.exe',
     'maintenanceservice_installer.exe',
-    'default-browser-agent.exe'
+    'default-browser-agent.exe',
+    # Auto-update is locked by policy; keep ALL browser engine and media DLLs.
+    'updater.exe',
+    # Optional telemetry/crash uploading executables, not rendering components.
+    'pingsender.exe',
+    'crashreporter.exe',
+    'minidump-analyzer.exe'
 )
 
 # Runtime essentials MUST NOT be stripped, even for text-only usage.
@@ -74,4 +80,4 @@ foreach($path in $requiredPaths){
 if((Get-AuthenticodeSignature -LiteralPath $ff).Status -ne 'Valid'){
     throw 'Firefox signature invalid after slimming.'
 }
-Write-Host "PASS: Firefox runtime and code signature intact. Trimmed $removed bytes. AuditOnly=$AuditOnly"
+Write-Host "PASS: Firefox runtime and code signature intact. Removed optional support assets: $removed bytes. AuditOnly=$AuditOnly"

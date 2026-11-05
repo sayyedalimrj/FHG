@@ -1,3 +1,13 @@
+## FHG Proxy v0.5.1-rc.1 — bug-fix prerelease
+
+**[Windows Release (ZIP + Compact 7z)](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.1-rc.1)** — builds and publishes only after Windows CI checks pass.
+
+Fixes the independent Hiddify internal control gRPC port (`27178` instead of the vendor's `17078`), returns an actionable error if core init fails, defaults to **English** on FHG first start, adds **ChatGPT** to Firefox bookmarks, removes the Firefox welcome tour, and auto-installs a locally bundled Mozilla-signed **offline TOTP generator** when available (otherwise official AMO online install). Firewall/UAC cancellation is explained and Firefox remains closed until app-scoped WFP guard protection is active. The compact solid 7z archive decreases download size; Firefox rendering components are kept intact.
+
+[Full notes, privacy/security caveats and Firefox terms](docs/RELEASE-v0.5.1-rc.1.md).
+
+---
+
 ## FHG Proxy v0.5.0-rc.2 — Independent browser / port 12345
 
 **[GitHub Release for Windows x64](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.0-rc.2)** (experimental prerelease; published only if the corresponding CI build succeeds). This build is separately branded as **FHG Proxy**, with a different Windows single-instance mutex, title, icon, portable data directory, and auto-start identity so users can keep the vendor's Hiddify installed and running. It locks SOCKS5 **127.0.0.1:12345** in Firefox, Core, read-only settings and the application-specific WFP guard. It checks for a port collision before launching. Do not install into Program Files; extract to a writable private folder. WebRTC is disabled.

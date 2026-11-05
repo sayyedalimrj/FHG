@@ -32,4 +32,23 @@ jobs:
           assert p["FirefoxHome"]["TopSites"] is True
           assert p["FirefoxHome"]["SponsoredTopSites"] is False
           assert p["Preferences"]["browser.aboutwelcome.enabled"]=={"Value": False, "Status": "locked"}
+          assert p["DisableProfileImport"] is True, "FHG may not import regular Firefox data"
+          assert p["DisableDefaultBrowserAgent"] is True
+          assert p["DefaultBrowserSettingEnabled"] is False
+          assert p["DontCheckDefaultBrowser"] is True
+          launcher=Path("native/original-ui/Program.cs").read_text(encoding="utf-8")
+          account_paths=Path("native/original-ui/AccountPaths.cs").read_text(encoding="utf-8")
+          installer=Path("packaging/FHG-Setup.iss").read_text(encoding="utf-8")
+          assert 'Path.Combine(Root, "Firefox", "firefox.exe")' in launcher
+          assert 'browser.ArgumentList.Add("-no-remote")' in launcher
+          assert 'browser.ArgumentList.Add("-profile")' in launcher
+          assert 'browser.ArgumentList.Add(ProfileDir)' in launcher
+          assert 'Refusing to launch a Firefox executable or profile outside isolated FHG directories.' in launcher
+          assert 'Environment.SpecialFolder.LocalApplicationData' in account_paths
+          assert 'FirefoxProfile' in account_paths and '"FHG", "Accounts"' in account_paths
+          assert "ChangesAssociations=no" in installer
+          assert "PrivilegesRequired=lowest" in installer
+          assert "Software\\\\Clients\\\\StartMenuInternet" not in installer
+          assert "HKCR" not in installer and "HKLM" not in installer
+          print("PASS: independently bundled Firefox, isolated per-user profiles, no system browser takeover")
           print("Firefox policy static validation passed. This is NOT a leak test.")

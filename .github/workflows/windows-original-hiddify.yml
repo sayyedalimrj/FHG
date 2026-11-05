@@ -1,0 +1,121 @@
+name: FHG with original Hiddify UI (Windows x64)
+on:
+  push:
+    paths:
+      - "native/original-ui/**"
+      - "native/guard/**"
+      - "native/app/resources/generate_icon.py"
+      - "native/app/resources/check-icon-signature.ps1"
+      - "packaging/build-original-ui.ps1"
+      - "packaging/sign-publisher.ps1"
+      - "firefox/distribution/policies.json"
+      - ".github/workflows/windows-original-hiddify.yml"
+      - "docs/RELEASE-v0.4.0-alpha.1.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Generate branded FHG launcher icon
+        shell: pwsh
+        run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+      - name: Compile minimal FHG browser launcher (no custom proxy UI)
+        shell: pwsh
+        run: |
+          dotnet publish native/original-ui/FHG.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-launcher
+          if ($LASTEXITCODE -ne 0) { throw "FHG launcher compilation failed" }
+          if (!(Test-Path "publish-launcher/FHG.exe")) {throw "FHG launcher missing"}
+      - name: Configure native Windows app-scoped guard
+        run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
+      - name: Compile guard and network probe
+        shell: pwsh
+        run: |
+          cmake --build build-guard --config Release --parallel
+          if ($LASTEXITCODE -ne 0) {throw "Guard compile failed"}
+          cmake --build build-guard --config Release --target FHGProbe
+          if ($LASTEXITCODE -ne 0) {throw "Probe compile failed"}
+      - name: Test WFP IPv4/IPv6 restrictions for FHG-only processes
+        shell: pwsh
+        run: |
+          ./native/guard/test-egress.ps1 -GuardPath (Resolve-Path "build-guard/Release/FHGGuard.exe").Path -ProbePath (Resolve-Path "build-guard/Release/FHGProbe.exe").Path
+      - name: Sign FHG binaries when a real publisher certificate exists
+        shell: pwsh
+        env:
+          FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
+          FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
+        run: |
+          ./packaging/sign-publisher.ps1 -Controller publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+      - name: Verify embedded launcher icon and publisher signature status
+        shell: pwsh
+        run: |
+          ./native/app/resources/check-icon-signature.ps1 -Controller publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+      - name: Build complete original-Hiddify-UI offline package
+        shell: pwsh
+        run: |
+          ./packaging/build-original-ui.ps1 -Launcher publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe
+      - name: Check official GUI bundled and ZIP checksum
+        shell: pwsh
+        run: |
+          $file = "FHG-original-Hiddify-UI-windows-x64.zip"
+          if (!(Test-Path $file)) {throw "Offline package missing"}
+          $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path (Get-Location) ($file + ".sha256")), ($hash + "  " + $file + "`n"), [Text.Encoding]::ASCII)
+          Write-Host "FHG original Hiddify UI SHA-256: $hash"
+      - name: Attest official experimental bundle origin
+        if: github.event_name != 'pull_request'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: FHG-original-Hiddify-UI-windows-x64.zip
+      - name: Upload complete offline FHG package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: FHG-original-Hiddify-UI-windows-x64
+          path: |
+            FHG-original-Hiddify-UI-windows-x64.zip
+            FHG-original-Hiddify-UI-windows-x64.zip.sha256
+          if-no-files-found: error
+
+  release:
+    name: Release FHG with original Hiddify GUI
+    needs: [build]
+    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v0.4.0-alpha.1') }}"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-original-Hiddify-UI-windows-x64
+          path: release-assets
+      - name: Check artifact SHA-256
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum -c FHG-original-Hiddify-UI-windows-x64.zip.sha256
+          test -s FHG-original-Hiddify-UI-windows-x64.zip
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create v0.4.0-alpha.1 \
+            release-assets/FHG-original-Hiddify-UI-windows-x64.zip \
+            release-assets/FHG-original-Hiddify-UI-windows-x64.zip.sha256 \
+            --title 'FHG v0.4.0-alpha.1 — Original Hiddify GUI + Firefox' \
+            --notes-file docs/RELEASE-v0.4.0-alpha.1.md \
+            --prerelease --latest=false --target "$GITHUB_SHA"

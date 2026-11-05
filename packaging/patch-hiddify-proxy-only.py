@@ -125,7 +125,7 @@ class InboundOptionsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Browser proxy')),
-    body: const ListView(children: [
+    body: ListView(children: const [
       ListTile(
         leading: Icon(Icons.lock_outline_rounded),
         title: Text('Proxy only'),

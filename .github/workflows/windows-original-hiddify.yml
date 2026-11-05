@@ -93,7 +93,8 @@ jobs:
 
   release:
     # Old releases are historical only, never automatically republished.
-    if: ${{ false }}    name: Release FHG with original Hiddify GUI
+    if: ${{ false }}
+    name: Release FHG with original Hiddify GUI
     needs: [build]
     runs-on: ubuntu-latest
     permissions:

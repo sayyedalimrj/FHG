@@ -85,7 +85,8 @@
     "ExtensionSettings": {
       "authenticator@mymindstorm": {
         "installation_mode": "force_installed",
-        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi"
+        "install_url": "https://addons.mozilla.org/firefox/downloads/latest/auth-helper/latest.xpi",
+        "default_area": "navbar"
       }
     }
   }

@@ -64,7 +64,9 @@ internal static class Program
             }
             if (!EnsureGuard())
             {
-                Warn("Firefox was not opened because the network guard did not pass verification.\n\nSee the exact failure in:\n" + GuardLog + "\n\nThe Hiddify subscription interface remains available.");
+                Warn("FHG did not open Firefox because its Windows network guard is not installed or verified.\n\n" +
+                     "On the next launch, choose YES to install the FHG guard, then approve the Windows UAC administrator prompt.\n" +
+                     "If you cancel UAC, Firefox stays closed to prevent direct traffic.\n\nDetails: " + GuardLog);
                 return 6;
             }
 
@@ -237,6 +239,12 @@ internal static class Program
             if (!verified)
                 Log("Elevated install succeeded but unelevated WFP verification failed. Check Authenticated Users read ACL and BFE status.");
             return verified;
+        }
+        catch (System.ComponentModel.Win32Exception e) when (e.NativeErrorCode == 1223)
+        {
+            // ERROR_CANCELLED is a declined UAC prompt, not a WFP regression.
+            Log("FHG WFP guard installation was canceled at the Windows UAC prompt (1223).");
+            return false;
         }
         catch (Exception e)
         {

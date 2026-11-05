@@ -9,7 +9,15 @@ on:
       - 'packaging/patch-hiddify-proxy-only.py'
       - 'packaging/rebrand-hiddify.py'
       - 'packaging/bundle-totp-addon.ps1'
+      - 'packaging/FHG-Diagnose.ps1'
+      - 'packaging/sign-publisher.ps1'
+      - 'docs/CONNECTIVITY-DIAGNOSTICS.md'
       - 'native/original-ui/Program.cs'
+      - 'native/original-ui/FirstRunWizard.cs'
+      - 'native/first-run-tests/FHG.FirstRun.Tests.csproj'
+      - 'native/first-run-tests/Program.cs'
+      - 'packaging/FHG-Diagnose.cmd'
+      - 'docs/FIRST-RUN-LOCAL-SETUP.md'
       - 'native/original-ui/FHG.csproj'
       - 'native/guard/FHGGuard.cpp'
       - 'native/guard/test-egress.ps1'
@@ -29,6 +37,14 @@ jobs:
     timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
+      - name: Validate diagnostic PowerShell syntax before any expensive build
+        shell: pwsh
+        run: |
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path packaging/FHG-Diagnose.ps1).Path,[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { $errors | ForEach-Object { Write-Error $_.Message }; throw 'FHG-Diagnose.ps1 has syntax errors' }
+          Write-Host 'PASS: read-only diagnostic script parses on Windows PowerShell 7 (PowerShell 5.1 syntax compatible)'
       - name: Checkout pinned upstream Hiddify
         shell: pwsh
         run: |
@@ -47,7 +63,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {throw 'Source patch whitespace error'}
           git -C vendor diff | Out-File -FilePath FHG-HIDDIFY-SOURCE.patch -Encoding utf8
           $config=Get-Content vendor/lib/features/settings/data/config_option_repository.dart -Raw
-          foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12345", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
+          foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12345", "'clash-api-port': 26756", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
             if (!$config.Contains($key)) {throw "Runtime invariant missing: $key"}
           }
           $nav=Get-Content vendor/lib/core/router/adaptive_layout/my_adaptive_layout.dart -Raw
@@ -69,13 +85,22 @@ jobs:
           $core=Get-Content vendor/lib/hiddifycore/hiddify_core_service.dart -Raw
           if (!$grpc.Contains('super(port: 27178)') -or $grpc.Contains('super(port: 17078)')) {throw 'Hiddify internal gRPC still conflicts with normal Hiddify'}
           if (!$bootstrap.Contains("fhg_english_default_initialized")) {throw 'FHG English first-launch migration absent'}
-          if (!$core.Contains("FHG Proxy engine has not initialized")) {throw 'Missing fail-safe profile import diagnostic'}
+          if (!$core.Contains("FHG core did not start.") -or !$core.Contains("await setup().run();")) {throw 'Missing core recovery retry and error diagnostic'}
+          $conn=Get-Content vendor/lib/features/connection/data/connection_repository.dart -Raw
+          if (!$conn.Contains("(singbox.core as CoreInterfaceDesktopTun).useAdminBgService = false")) {throw 'FHG must never request vendor HiddifyAdmin elevation for proxy-only mode'}
           $http=Get-Content vendor/lib/core/http_client/dio_http_client.dart -Raw
           $parser=Get-Content vendor/lib/features/profile/data/profile_parser.dart -Raw
           $fhgHomeSource=Get-Content vendor/lib/features/home/widget/home_page.dart -Raw
-          if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";')) {throw 'User-approved proxy bootstrap or no-direct-fallback protection missing'}
+          if (!$http.Contains('FHG_BOOTSTRAP_HTTP_PROXY') -or !$http.Contains('PROXY $bootstrap') -or !$http.Contains('return "PROXY $proxy";') -or !$http.Contains('bootstrapApproved ? "direct"')) {throw 'User-approved bootstrapping must take priority over an inactive local FHG proxy, without DIRECT fallback'}
           if (!$parser.Contains('Duration(seconds: 40)') -or !$parser.Contains('ProfileFailure.invalidUrl')) {throw 'Bounded subscription import diagnostic absent'}
           if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
+          $setup=Get-Content vendor/lib/bootstrap.dart -Raw
+          $gui=Get-Content native/original-ui/Program.cs -Raw
+          $wizard=Get-Content native/original-ui/FirstRunWizard.cs -Raw
+          if (!$setup.Contains('_fhgOneTimeSubscription') -or !$setup.Contains("FHG_INITIAL_SUB_FILE") -or !$setup.Contains("upsertRemote(url)") -or !$setup.Contains('restoreConnectionOnStartup()')) {throw 'One-time subscription native import is missing'}
+          if (!$gui.Contains('WaitForSubscriptionReceipt') -or !$gui.Contains('WaitForFhgProxyHttps')) {throw 'First-run receipt or authenticated SOCKS readiness gate missing'}
+          if (!$wizard.Contains('Exactly four lines') -or !$wizard.Contains('Uri.UriSchemeHttps')) {throw 'First-run input validation missing'}
+          Write-Host 'PASS: one-time subscription import, guarded readiness and input validation source checks'
           Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
       - uses: subosito/flutter-action@v2.21.0
@@ -89,6 +114,27 @@ jobs:
         run: |
           set -euo pipefail
           make windows-prepare
+      - name: Hiddify behavior tests (subscription parsing, persistence, startup, network, nodes)
+        shell: pwsh
+        working-directory: vendor
+        env:
+          SENTRY_DSN: ''
+        run: |
+          $tests=@(
+            'test/core/http_client/user_agent_test.dart',
+            'test/features/profile/data/profile_parser_test.dart',
+            'test/features/profile/data/profile_repository_test.dart',
+            'test/features/settings/data/config_option_repository_test.dart',
+            'test/features/connection/model/startup_connection_test.dart',
+            'test/features/connection/notifier/disconnect_completes_test.dart',
+            'test/features/proxy/connection_health_test.dart',
+            'test/hiddifycore/core_interface/start_once_stopped_test.dart'
+          )
+          foreach($file in $tests) {
+            Write-Host "Testing Hiddify behavior: $file"
+            flutter test $file --reporter expanded
+            if ($LASTEXITCODE -ne 0) {throw "Hiddify functional regression failed: $file"}
+          }
       - name: Compile patched native Windows Flutter UI
         shell: pwsh
         working-directory: vendor
@@ -102,6 +148,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Verify local first-run parser with dummy inputs only
+        shell: pwsh
+        run: |
+          dotnet run --project native/first-run-tests/FHG.FirstRun.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'FHG local first-run parser tests failed' }
       - name: Compile updated FHG launcher and fix WFP guard non-admin status
         shell: pwsh
         run: |
@@ -115,6 +166,18 @@ jobs:
           cmake --build build-guard --config Release --target FHGProbe
           if ($LASTEXITCODE -ne 0) {throw 'FHG probe build failed'}
           if (!(Test-Path 'publish-launcher/FHG.exe') -or !(Test-Path 'build-guard/Release/FHGGuard.exe')) {throw 'Launcher or Guard missing'}
+      - name: Sign native FHG components and modified FHGProxy when publisher certificate is available
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          FHG_SIGNING_PFX_BASE64: ${{ secrets.FHG_SIGNING_PFX_BASE64 }}
+          FHG_SIGNING_PFX_PASSWORD: ${{ secrets.FHG_SIGNING_PFX_PASSWORD }}
+        run: |
+          ./packaging/sign-publisher.ps1 -Controller publish-launcher/FHG.exe -Guard build-guard/Release/FHGGuard.exe -ProxyExe vendor/build/windows/x64/runner/Release/FHGProxy.exe
+          foreach($p in @('publish-launcher/FHG.exe','build-guard/Release/FHGGuard.exe','vendor/build/windows/x64/runner/Release/FHGProxy.exe')) {
+            $sig=(Get-AuthenticodeSignature $p).Status
+            Write-Host "Publisher-signing status for $p : $sig"
+          }
       - name: Regression test app-only WFP protection (TCP IPv4 and IPv6)
         shell: pwsh
         run: |
@@ -172,6 +235,9 @@ jobs:
           }
           Copy-Item packaging/patch-hiddify-proxy-only.py stage/FHG-SOURCE-PATCH.py
           Copy-Item packaging/rebrand-hiddify.py stage/FHG-REBRAND-SOURCE.py
+          Copy-Item packaging/FHG-Diagnose.ps1 stage/FHG-Diagnose.ps1
+          Copy-Item packaging/FHG-Diagnose.cmd stage/FHG-Diagnose.cmd
+          Copy-Item docs/FIRST-RUN-LOCAL-SETUP.md stage/FIRST-RUN-LOCAL-SETUP.md
           Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
           Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
           Copy-Item docs/RELEASE-v0.5.2-rc.1.md stage/RELEASE-NOTES.md
@@ -181,6 +247,28 @@ jobs:
           Write-Host 'Patched FHG Proxy SHA256:' (Get-FileHash stage/Hiddify/FHGProxy.exe -Algorithm SHA256).Hash
           if (Test-Path stage/Hiddify/Hiddify.exe) {throw 'Old conflicting Hiddify.exe remains in bundle'}
           ./native/app/resources/check-icon-signature.ps1 -Controller stage/Hiddify/FHGProxy.exe -Guard stage/FHGGuard.exe
+      - name: Windows native core bootstrap smoke test (not a subscription connectivity test)
+        shell: pwsh
+        run: |
+          $exe=(Resolve-Path stage/Hiddify/FHGProxy.exe).Path
+          $work=(Resolve-Path stage/Hiddify).Path
+          $proc=$null
+          try {
+            $proc=Start-Process -FilePath $exe -WorkingDirectory $work -PassThru
+            $ready=$false
+            for($tick=0; $tick -lt 24; $tick++){
+              Start-Sleep -Seconds 1
+              if ($proc.HasExited) {throw "FHGProxy.exe exited before its native core bound control port 27178: $($proc.ExitCode)"}
+              $listener=Get-NetTCPConnection -LocalPort 27178 -State Listen -ErrorAction SilentlyContinue | Where-Object {$_.OwningProcess -eq $proc.Id -and $_.LocalAddress -eq '127.0.0.1'}
+              if ($listener){$ready=$true;break}
+            }
+            if(!$ready){throw 'FHG core startup smoke test failed: no 127.0.0.1:27178 owned by FHGProxy.exe'}
+            Write-Host 'PASS: FHG Proxy GUI started and its core owns the dedicated control port 27178.'
+          } finally {
+            if ($proc) {
+              try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+            }
+          }
       - name: Slim isolated FHG Firefox safely for AI websites
         shell: pwsh
         run: |
@@ -200,7 +288,8 @@ jobs:
               $p.policies.RequestedLocales[0] -ne 'en-US' -or
               $p.policies.Bookmarks[0].URL -ne 'https://chatgpt.com/' -or
               $p.policies.DisplayBookmarksToolbar -ne 'always') {throw 'FHG English/Firefox onboarding/ChatGPT bookmark policy missing'}
-          if ($p.policies.ExtensionSettings.'authenticator@mymindstorm'.installation_mode -ne 'force_installed' -or
+          if ($p.policies.ExtensionSettings.'authenticator@mymindstorm'.default_area -ne 'navbar' -or
+              $p.policies.ExtensionSettings.'authenticator@mymindstorm'.installation_mode -ne 'force_installed' -or
               $p.policies.Homepage.URL -ne 'https://chatgpt.com/' -or
               $p.policies.FirefoxHome.TopSites -ne $true) {throw 'Automatic Authenticator or ChatGPT Top Sites policy missing'}
           Write-Host 'PASS: Firefox first run, ChatGPT Home/Top Sites and signed Authenticator policy verified.'
@@ -250,11 +339,16 @@ jobs:
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
       - name: Publish GitHub prerelease with directly downloadable ZIP
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && vars.FHG_RELEASE_APPROVED == 'yes'
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          foreach($native in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Hiddify/FHGProxy.exe')) {
+            if ((Get-AuthenticodeSignature $native).Status -ne 'Valid') {
+              throw "Unsigned native executable: $native. Public release requires a real trusted publisher certificate."
+            }
+          }
           $tag='v0.5.2-rc.1'
           $zip='FHG-ProxyOnly-12345-Windows-x64-v0.5.2-rc.1.zip'
           if (!(Test-Path $zip) -or !(Test-Path "$zip.sha256")) {throw 'Release assets missing'}

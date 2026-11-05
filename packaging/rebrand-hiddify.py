@@ -77,7 +77,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''      try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''',
         '''      if (!core.isInitialized()) {
-        return left('FHG Proxy engine was not initialized. Internal gRPC port 27178 must be free; restart FHG Proxy and inspect its app.log.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG Proxy engine not ready. Internal control port 27178 may be blocked. Inspect FHG app.log and the local port owner.');
+        }
       }
       try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''')
@@ -86,7 +89,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
       // latestOptions = options;''',
         '''      loggy.debug("changing options");
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine has not initialized; cannot add or validate profiles. Check port 27178 and restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core did not start. Cannot change connection options. Check local port 27178 and FHG app.log.');
+        }
       }
       // latestOptions = options;''')
 replace("lib/hiddifycore/hiddify_core_service.dart",
@@ -96,7 +102,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''  TaskEither<String, String> generateFullConfigByPath(String path) {
     return TaskEither(() async {
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine not ready: internal gRPC port 27178. Restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core unavailable while parsing profile. Check 27178 listener, logs, and original Hiddify port conflicts.');
+        }
       }
       final response = await core.fgClient.parse''')
 
@@ -262,6 +271,150 @@ replace("lib/features/profile/data/profile_parser.dart",
         'Subscription could not be downloaded. Check proxy connection or use local import.',
       );
     }""")
+
+# With user-approved bootstrap, a live but not CONNECTED FHG SOCKS listener
+# must never shadow the working normal-Hiddify proxy. Current upstream
+# selects "both" solely because 12345 accepts TCP even if all nodes are dead.
+# Always use the explicitly approved bootstrap for subscription HTTP fetches,
+# while the Firefox traffic path remains strictly FHG's own 12345 listener.
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final mode = proxyOnly && portOpen''',
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly && portOpen''')
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final mode = proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''',
+        '''    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''')
+
+# Enforce proxy-only at the DesktopTun -> native core boundary too, not only
+# Flutter preferences. Never touch HiddifyAdminBG / ProgramData of the vendor
+# installation, even if a stale preference or a config tries to request TUN.
+replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
+        """    _options = options;
+    // When admin_bgservice will own TUN, fg must not enable TUN; full settings go in Ensure.
+    final adminOwnsTun = useAdminBgService || (options.enableTun && !await _isPrivileged());""",
+        """    if (options.enableTun || options.setSystemProxy || options.allowConnectionFromLan) {
+      throw StateError('FHG supports only local proxy mode; no VPN, system proxy or LAN listener.');
+    }
+    useAdminBgService = false;
+    _options = options;
+    // FHG never installs or attaches the vendor HiddifyAdminBG service.
+    const adminOwnsTun = false;""")
+replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
+        """    final wantAdminBg = useAdminBgService || options.enableTun;
+    if (!wantAdminBg) {""",
+        """    // FHG does not permit admin background services or TUN at the core boundary.
+    if (options.enableTun || options.setSystemProxy || options.allowConnectionFromLan) {
+      throw StateError('FHG refuses TUN, system proxy and LAN outbound modes.');
+    }
+    const wantAdminBg = false;
+    if (!wantAdminBg) {""")
+
+# The upstream Windows connection repository may request its own elevated
+# HiddifyAdmin background service for optional proxy features. FHG intentionally
+# offers only unprivileged local proxy mode; WFP elevation is handled once by
+# FHGGuard.exe. Do not prompt for or attach to the vendor's admin service.
+replace("lib/features/connection/data/connection_repository.dart",
+        """    if (!Platform.isWindows && !Platform.isLinux) return;
+    final core = singbox.core;""",
+        """    if (Platform.isWindows) {
+      if (singbox.core is CoreInterfaceDesktopTun) {
+        (singbox.core as CoreInterfaceDesktopTun).useAdminBgService = false;
+      }
+      return;
+    }
+    if (!Platform.isWindows && !Platform.isLinux) return;
+    final core = singbox.core;""")
+
+# One-time subscription import via an unguessable user-local file ticket.
+# Account password and TOTP seed are NEVER passed to Hiddify.
+replace("lib/bootstrap.dart",
+        "import 'package:flutter/foundation.dart';",
+        "import 'package:path/path.dart' as fhg_path;\nimport 'package:flutter/foundation.dart';")
+replace("lib/bootstrap.dart",
+        '''  Logger.bootstrap.info("bootstrap took [${stopWatch.elapsedMilliseconds}ms]");''',
+        '''  if (Platform.isWindows && Environment.isPortable) {
+    await _fhgOneTimeSubscription(container);
+  }
+  Logger.bootstrap.info("bootstrap took [${stopWatch.elapsedMilliseconds}ms]");''')
+bootstrap = root / "lib/bootstrap.dart"
+source = bootstrap.read_text(encoding="utf-8")
+if "Future<void> _fhgOneTimeSubscription(" in source:
+    raise SystemExit("Duplicate FHG one-time importer")
+source += r'''
+
+// The ticket contains ONLY the subscription URL, not account credentials.
+// A URL may itself contain a bearer token, so never print it to any log.
+Future<void> _fhgOneTimeSubscription(ProviderContainer container) async {
+  final requested = Platform.environment['FHG_INITIAL_SUB_FILE'];
+  if (requested == null || requested.isEmpty) return;
+
+  File? ticket;
+  File? receipt;
+  try {
+    final local = Platform.environment['LOCALAPPDATA'];
+    if (local == null || local.isEmpty) return;
+    final safeDirectory = fhg_path.join(local, 'FHG', 'InitialSetup');
+    final allowed = await Directory(safeDirectory).resolveSymbolicLinks();
+    final canonical = await File(requested).resolveSymbolicLinks();
+    if (!fhg_path.isWithin(allowed, canonical) ||
+        !RegExp(r'^provision-[0-9a-f]{32}\.txt$').hasMatch(fhg_path.basename(canonical))) {
+      throw StateError('Rejected an untrusted setup-file path');
+    }
+    ticket = File(canonical);
+    receipt = File('$canonical.status');
+    if (await ticket.length() > 8192) {
+      throw StateError('Subscription ticket was too large');
+    }
+    final url = (await ticket.readAsString()).trim();
+    final parsed = Uri.tryParse(url);
+    if (parsed == null || parsed.scheme != 'https' ||
+        parsed.host.isEmpty || parsed.userInfo.isNotEmpty) {
+      throw StateError('Setup subscription URL must be HTTPS');
+    }
+    final repo = container.read(profileRepositoryProvider).requireValue;
+    final result = await repo.upsertRemote(url).run();
+    result.match(
+      (failure) => throw StateError('Subscription import or config validation failed'),
+      (_) => null,
+    );
+    await repo.watchActiveProfile().firstWhere(
+      (event) => event.match((_) => false, (profile) => profile != null),
+    ).timeout(const Duration(seconds: 8));
+
+    await container.read(Preferences.startedByUser.notifier).update(true);
+    await container.read(connectionNotifierProvider.notifier).restoreConnectionOnStartup();
+    await receipt.writeAsString('IMPORTED');
+    Logger.bootstrap.info('FHG initial subscription validated and connection requested');
+  } catch (error) {
+    Logger.bootstrap.warning('FHG initial subscription setup did not complete (${error.runtimeType})');
+    if (receipt != null) {
+      try {
+        await receipt.writeAsString('FAILED');
+      } catch (_) {}
+    }
+  } finally {
+    // Leave the original four-line file unchanged (user-owned).
+    if (ticket != null) {
+      try {
+        if (await ticket.exists()) await ticket.delete();
+      } catch (_) {}
+    }
+  }
+}
+'''
+bootstrap.write_text(source, encoding="utf-8", newline="\n")
+print("BRAND lib/bootstrap.dart — one-time private subscription import")
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

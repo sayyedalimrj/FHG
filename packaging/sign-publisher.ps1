@@ -1,9 +1,11 @@
 param(
  [Parameter(Mandatory=$true)][string]$Controller,
- [Parameter(Mandatory=$true)][string]$Guard
+ [Parameter(Mandatory=$true)][string]$Guard,
+ [string]$ProxyExe = ''
 )
 $ErrorActionPreference='Stop'
 $exe=@((Resolve-Path $Controller).Path,(Resolve-Path $Guard).Path)
+if (-not [string]::IsNullOrWhiteSpace($ProxyExe)) { $exe += (Resolve-Path $ProxyExe).Path }
 # A real publisher signature requires a private code-signing certificate.
 # GitHub does not contain the private key. Optional repository Actions secrets are:
 #   FHG_SIGNING_PFX_BASE64, FHG_SIGNING_PFX_PASSWORD
@@ -35,7 +37,7 @@ try {
   $status=(Get-AuthenticodeSignature $path).Status
   if($status -ne 'Valid') {throw "Signed file is not trust-valid: $path ($status)"}
  }
- Write-Host 'PASS: both FHG binaries have valid verified Authenticode signatures.'
+ Write-Host "PASS: $($exe.Count) FHG binaries have verified Authenticode signatures."
 } finally {
  Remove-Item $pfx -Force -ErrorAction SilentlyContinue
 }

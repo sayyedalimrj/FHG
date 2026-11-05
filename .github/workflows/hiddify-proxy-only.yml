@@ -319,6 +319,25 @@ jobs:
               $p.policies.FirefoxHome.TopSites -ne $true) {throw 'Automatic Authenticator or ChatGPT Top Sites policy missing'}
           Write-Host 'PASS: Firefox first run, ChatGPT Home/Top Sites and signed Authenticator policy verified.'
           Write-Host 'PASS: AI focused Firefox compact UI and safe trim applied to complete Windows bundle.'
+      - name: Reject legacy WPF FHG (12334) or obsolete CLI from installer
+        shell: pwsh
+        run: |
+          foreach($required in @('stage/FHG.exe','stage/FHGGuard.exe','stage/FHGAccountManager.exe','stage/Firefox/firefox.exe','stage/Hiddify/FHGProxy.exe')){
+            if (!(Test-Path $required)) {throw "Incomplete official-Hiddify FHG package: $required"}
+          }
+          $launcherHash=(Get-FileHash publish-launcher/FHG.exe -Algorithm SHA256).Hash
+          $stagedLauncherHash=(Get-FileHash stage/FHG.exe -Algorithm SHA256).Hash
+          if ($launcherHash -ne $stagedLauncherHash) {throw 'Staged FHG.exe is NOT the corrected minimal launcher. Refusing legacy WPF executable.'}
+          $nativeGui=(Resolve-Path vendor/build/windows/x64/runner/Release/FHGProxy.exe).Path
+          $patchedHash=(Get-FileHash $nativeGui -Algorithm SHA256).Hash
+          $stagedHash=(Get-FileHash stage/Hiddify/FHGProxy.exe -Algorithm SHA256).Hash
+          if ($patchedHash -ne $stagedHash) {throw 'Staged FHGProxy.exe is NOT the source-patched native Hiddify GUI.'}
+          foreach($forbidden in @('stage/Core/HiddifyCli.exe','stage/FHG.UI.dll','stage/FHG-experimental-win-x64.zip')){
+            if (Test-Path $forbidden) {throw "Legacy controller artifact in release payload: $forbidden"}
+          }
+          $title=(Get-Item stage/FHG.exe).VersionInfo.ProductName
+          if ($title -notmatch 'FHG') {throw "Unexpected launcher publisher metadata: $title"}
+          Write-Host 'PASS: official patched Hiddify GUI, isolated browser, correct launcher; no old custom 12334 dashboard.'
       - name: Build and verify clean self-contained Windows FHG Setup EXE
         shell: pwsh
         env:

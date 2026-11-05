@@ -71,11 +71,30 @@ replace(p,
     overrideValue: 12345,
   );''')
 
+# Original Hiddify's Clash API uses 127.0.0.1:16756. Independent FHG must
+# NEVER bind the same management port; keep the local API on :26756.
+# The management API remains loopback-only and must not be exposed to LAN.
+replace(p,
+    '''  static final clashApiPort = PreferencesNotifier.create<int, int>(
+    "clash-api-port",
+    16756,
+    validator: (value) => isPort(value.toString()),
+  );''',
+    '''  static final clashApiPort = PreferencesNotifier.create<int, int>(
+    "clash-api-port",
+    26756,
+    mapFrom: (_) => 26756,
+    mapTo: (_) => 26756,
+    validator: (value) => value == 26756,
+    overrideValue: 26756,
+  );''')
+
 # 2) Hard restrictions are imposed in the config actually sent to Hiddify Core,
 # not merely on UI widgets. This also defeats stored legacy values.
 replace(p, "    final mode = ref.watch(serviceMode);", "    const mode = ServiceMode.proxy; // FHG runtime invariant")
 for before,after in (
     ("mixedPort: ref.watch(mixedPort),", "mixedPort: 12345,"),
+    ("clashApiPort: ref.watch(clashApiPort),", "clashApiPort: 26756,"),
     ("enableMixedPort: ref.watch(enableMixedPort),", "enableMixedPort: true,"),
     ("enableTproxyPort: ref.watch(enableTproxyPort),", "enableTproxyPort: false,"),
     ("enableDirectPort: ref.watch(enableDirectPort),", "enableDirectPort: false,"),
@@ -99,6 +118,7 @@ replace(p,
           return SingboxConfigOption.fromJson({
             ...safe,
             'mixed-port': 12345,
+            'clash-api-port': 26756,
             'enable-mixed-port': true,
             'enable-tun': false,
             'set-system-proxy': false,
@@ -262,7 +282,7 @@ replace(p,
 
 # Assert all important invariants statically, before any expensive Flutter build.
 config = (root / "lib/features/settings/data/config_option_repository.dart").read_text(encoding="utf-8")
-for marker in ("'mixed-port': 12345", "'enable-tun': false", "'set-system-proxy': false",
+for marker in ("'mixed-port': 12345", "'clash-api-port': 26756", "'enable-tun': false", "'set-system-proxy': false",
                "'allow-connection-from-lan': false", "'chain-status': ChainStatus.off.key"):
     assert marker in config, f"Missing enforced config invariant {marker}"
 assert "const EnableAnalyticsPrefTile()" not in (root / "lib/features/settings/overview/sections/general_page.dart").read_text()

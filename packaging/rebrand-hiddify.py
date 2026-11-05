@@ -77,7 +77,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''      try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''',
         '''      if (!core.isInitialized()) {
-        return left('FHG Proxy engine was not initialized. Internal gRPC port 27178 must be free; restart FHG Proxy and inspect its app.log.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG Proxy engine not ready. Internal control port 27178 may be blocked. Inspect FHG app.log and the local port owner.');
+        }
       }
       try {
         final response = await core.fgClient.parse(ParseRequest(tempPath: tempPath, configPath: path, debug: false));''')
@@ -86,7 +89,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
       // latestOptions = options;''',
         '''      loggy.debug("changing options");
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine has not initialized; cannot add or validate profiles. Check port 27178 and restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core did not start. Cannot change connection options. Check local port 27178 and FHG app.log.');
+        }
       }
       // latestOptions = options;''')
 replace("lib/hiddifycore/hiddify_core_service.dart",
@@ -96,7 +102,10 @@ replace("lib/hiddifycore/hiddify_core_service.dart",
         '''  TaskEither<String, String> generateFullConfigByPath(String path) {
     return TaskEither(() async {
       if (!core.isInitialized()) {
-        return left('FHG Proxy engine not ready: internal gRPC port 27178. Restart FHG Proxy.');
+        await setup().run();
+        if (!core.isInitialized()) {
+          return left('FHG core unavailable while parsing profile. Check 27178 listener, logs, and original Hiddify port conflicts.');
+        }
       }
       final response = await core.fgClient.parse''')
 
@@ -262,6 +271,55 @@ replace("lib/features/profile/data/profile_parser.dart",
         'Subscription could not be downloaded. Check proxy connection or use local import.',
       );
     }""")
+
+# With user-approved bootstrap, a live but not CONNECTED FHG SOCKS listener
+# must never shadow the working normal-Hiddify proxy. Current upstream
+# selects "both" solely because 12345 accepts TCP even if all nodes are dead.
+# Always use the explicitly approved bootstrap for subscription HTTP fetches,
+# while the Firefox traffic path remains strictly FHG's own 12345 listener.
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final mode = proxyOnly && portOpen''',
+        '''    final portOpen = await isPortOpen("127.0.0.1", port);
+    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly && portOpen''')
+replace("lib/core/http_client/dio_http_client.dart",
+        '''    final mode = proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''',
+        '''    final bootstrapApproved = Platform.environment['FHG_BOOTSTRAP_HTTP_PROXY'] == '127.0.0.1:12334';
+    final mode = bootstrapApproved ? "direct" : proxyOnly
+        ? "proxy"
+        : await isPortOpen("127.0.0.1", port)
+        ? "both"
+        : "direct";''')
+
+# Enforce proxy-only at the DesktopTun -> native core boundary too, not only
+# Flutter preferences. Never touch HiddifyAdminBG / ProgramData of the vendor
+# installation, even if a stale preference or a config tries to request TUN.
+replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
+        """    _options = options;
+    // When admin_bgservice will own TUN, fg must not enable TUN; full settings go in Ensure.
+    final adminOwnsTun = useAdminBgService || (options.enableTun && !await _isPrivileged());""",
+        """    if (options.enableTun || options.setSystemProxy || options.allowConnectionFromLan) {
+      throw StateError('FHG supports only local proxy mode; no VPN, system proxy or LAN listener.');
+    }
+    useAdminBgService = false;
+    _options = options;
+    // FHG never installs or attaches the vendor HiddifyAdminBG service.
+    const adminOwnsTun = false;""")
+replace("lib/hiddifycore/core_interface/core_interface_desktop_tun.dart",
+        """    final wantAdminBg = useAdminBgService || options.enableTun;
+    if (!wantAdminBg) {""",
+        """    // FHG does not permit admin background services or TUN at the core boundary.
+    if (options.enableTun || options.setSystemProxy || options.allowConnectionFromLan) {
+      throw StateError('FHG refuses TUN, system proxy and LAN outbound modes.');
+    }
+    const wantAdminBg = false;
+    if (!wantAdminBg) {""")
+
 # Original graphic is generated in FHG and is not an upstream trademark.
 repo = Path(__file__).resolve().parents[1]
 icon_src = repo / "native/app/resources/generate_icon.py"

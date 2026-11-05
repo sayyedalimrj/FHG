@@ -1,10 +1,10 @@
-# FHG Proxy-only Hiddify — source patch (experimental)
+# FHG Proxy v0.5.0-rc.2 — independent Hiddify derivative (experimental)
 
 Based on the pinned upstream [Hiddify v5.5.5](https://github.com/hiddify/hiddify-app/releases/tag/v5.5.5), commit `7804cadac01419f31b1ec7802d9e1be599e66de2`.
 
 ## Requested FHG behavior
 
-- Exactly one service mode: **Proxy**, fixed to **127.0.0.1:12334**. Neither VPN/TUN nor System Proxy may be selected.
+- Exactly one service mode: **Proxy**, fixed to **127.0.0.1:12345**. Neither VPN/TUN nor System Proxy may be selected.
 - The enforcement occurs both in the Flutter GUI and in the Singbox config **after** profile overrides are merged. Old saved settings cannot silently reactivate other modes or ports.
 - No WARP/extra-security/Unblocker toggles. The resulting Core chain status is always **off**.
 - LAN sharing, remote proxy authentication, transparent forwarding ports and VPN/TUN are disabled in the Core config. Hiddify does not change Windows-wide proxy settings.
@@ -23,3 +23,8 @@ Based on the pinned upstream [Hiddify v5.5.5](https://github.com/hiddify/hiddify
 - All modified Hiddify source is derivative of the Hiddify app. The upstream [extended GPLv3 license](https://github.com/hiddify/hiddify-app/blob/main/LICENSE.md) includes attribution, share-alike, automatic releases, restrictions on commercial use and a requirement for a GitHub **fork** of the upstream app. Merely having the patch in FHG does not establish complete license compliance; do not publish a modified Hiddify binary commercially or as a final public release until these are addressed.
 
 **This is a development build, not a fully tested secure consumer release.**
+
+
+## Coexistence with the original Hiddify
+
+The FHG-specific Windows runner is `FHGProxy.exe`, uses its own `FHGProxyMutex`, branded Windows resources and tray icons, and keeps its portable database in `fhg_proxy_portable_data` beside the executable. FHG uses a separate browser and WFP provider identity, and does not register the original Hiddify URL protocols. The built-in mode selector is removed; proxy port 12345 is pinned in Core runtime options, profile override clamping, Firefox policy and WFP. All modified Hiddify code remains attributable to the upstream copyright holder.

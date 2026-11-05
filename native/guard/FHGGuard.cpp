@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <aclapi.h>
 #include <fwpmu.h>
 #include <fwptypes.h>
 #include <filesystem>
@@ -144,7 +145,7 @@ bool validRule(HANDLE h, const std::wstring& path, unsigned reason, FWP_BYTE_BLO
   auto key=filterKey(path,reason);
   FWPM_FILTER0* f=nullptr;
   DWORD code=FwpmFilterGetByKey0(h,&key,&f);
-  if(code) return false;
+  if(code) { std::cerr << "WFP rule read denied/missing, reason " << reason << ", code " << code << "\\n"; return false; }
   bool ok=same(f->subLayerKey,kSublayer) && f->providerKey &&
       same(*f->providerKey,kProvider) &&
       f->action.type==FWP_ACTION_BLOCK &&
@@ -236,12 +237,61 @@ bool verify(HANDLE h,const std::vector<std::wstring>& paths) {
       expected.insert(std::string(reinterpret_cast<const char*>(&id),sizeof(id)));
     }
   }
-  const auto installed=allFilterKeys(h);
-  if(installed.size()!=expected.size()) return false;
-  for(const auto& id:installed) {
-    if(!expected.count(std::string(reinterpret_cast<const char*>(&id),sizeof(id)))) return false;
-  }
+  // Non-admin users need not enumerate the global WFP filter container.
+  // Individually check every expected filter by GUID instead. Additional
+  // filters from another FHG installation can only add restrictions; they
+  // must not block this installation's startup verification.
   return true;
+}
+// A normal Windows user can open a WFP session but normally CANNOT read
+// admin-created filter/provider objects. Grant only FWPM_ACTRL_READ to the
+// Authenticated Users SID on FHG-owned objects after committing the rules.
+// No system-wide WFP ACL is changed, and no modify/delete rights are given.
+enum class OwnObject { Provider, Sublayer, Filter };
+void grantReadToUsers(HANDLE h, const GUID& key, OwnObject kind) {
+  PSID owner=nullptr, group=nullptr;
+  PACL original=nullptr, sacl=nullptr;
+  PSECURITY_DESCRIPTOR sd=nullptr;
+  DWORD result=0;
+  if (kind==OwnObject::Provider)
+    result=FwpmProviderGetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,&owner,&group,&original,&sacl,&sd);
+  else if (kind==OwnObject::Sublayer)
+    result=FwpmSubLayerGetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,&owner,&group,&original,&sacl,&sd);
+  else
+    result=FwpmFilterGetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,&owner,&group,&original,&sacl,&sd);
+  expect(result, "Read FHG WFP security descriptor");
+  if (!original) {
+    FwpmFreeMemory0(reinterpret_cast<void**>(&sd));
+    throw std::runtime_error("FHG WFP object has NULL DACL; refusing to rewrite its security");
+  }
+  BYTE sidBuffer[SECURITY_MAX_SID_SIZE]{};
+  DWORD sidSize=sizeof(sidBuffer);
+  if(!CreateWellKnownSid(WinAuthenticatedUserSid,nullptr,sidBuffer,&sidSize)) {
+    FwpmFreeMemory0(reinterpret_cast<void**>(&sd));
+    throw std::runtime_error("Cannot create Authenticated Users SID");
+  }
+  EXPLICIT_ACCESSW ace{};
+  ace.grfAccessPermissions=FWPM_ACTRL_READ;
+  ace.grfAccessMode=GRANT_ACCESS;
+  ace.grfInheritance=NO_INHERITANCE;
+  ace.Trustee.TrusteeForm=TRUSTEE_IS_SID;
+  ace.Trustee.TrusteeType=TRUSTEE_IS_GROUP;
+  ace.Trustee.ptstrName=reinterpret_cast<LPWSTR>(sidBuffer);
+  PACL newAcl=nullptr;
+  result=SetEntriesInAclW(1,&ace,original,&newAcl);
+  if (result) {
+    FwpmFreeMemory0(reinterpret_cast<void**>(&sd));
+    expect(result,"Build read-only FHG WFP object ACL");
+  }
+  if (kind==OwnObject::Provider)
+    result=FwpmProviderSetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,nullptr,nullptr,newAcl,nullptr);
+  else if (kind==OwnObject::Sublayer)
+    result=FwpmSubLayerSetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,nullptr,nullptr,newAcl,nullptr);
+  else
+    result=FwpmFilterSetSecurityInfoByKey0(h,&key,DACL_SECURITY_INFORMATION,nullptr,nullptr,newAcl,nullptr);
+  LocalFree(newAcl);
+  FwpmFreeMemory0(reinterpret_cast<void**>(&sd));
+  expect(result, "Grant read-only status on FHG WFP object");
 }
 void install(HANDLE h,const std::vector<std::wstring>& paths) {
   expect(FwpmTransactionBegin0(h,0),"FwpmTransactionBegin0");
@@ -260,7 +310,14 @@ void install(HANDLE h,const std::vector<std::wstring>& paths) {
     if(active) FwpmTransactionAbort0(h);
     throw;
   }
+  // SetSecurityInfo is explicitly prohibited inside a WFP transaction.
+  grantReadToUsers(h,kProvider,OwnObject::Provider);
+  grantReadToUsers(h,kSublayer,OwnObject::Sublayer);
+  for(const auto& path:paths)
+    for(unsigned reason=0;reason<4;++reason)
+      grantReadToUsers(h,filterKey(path,reason),OwnObject::Filter);
   if(!verify(h,paths)) throw std::runtime_error("Post-install guard verification failed");
+  std::cout << "Read-only WFP status rights granted to Authenticated Users.\n";
 }
 void remove(HANDLE h) {
   expect(FwpmTransactionBegin0(h,0),"FwpmTransactionBegin0");

@@ -286,7 +286,8 @@ jobs:
               $p.policies.RequestedLocales[0] -ne 'en-US' -or
               $p.policies.Bookmarks[0].URL -ne 'https://chatgpt.com/' -or
               $p.policies.DisplayBookmarksToolbar -ne 'always') {throw 'FHG English/Firefox onboarding/ChatGPT bookmark policy missing'}
-          if ($p.policies.ExtensionSettings.'authenticator@mymindstorm'.installation_mode -ne 'force_installed' -or
+          if ($p.policies.ExtensionSettings.'authenticator@mymindstorm'.default_area -ne 'navbar' -or
+              $p.policies.ExtensionSettings.'authenticator@mymindstorm'.installation_mode -ne 'force_installed' -or
               $p.policies.Homepage.URL -ne 'https://chatgpt.com/' -or
               $p.policies.FirefoxHome.TopSites -ne $true) {throw 'Automatic Authenticator or ChatGPT Top Sites policy missing'}
           Write-Host 'PASS: Firefox first run, ChatGPT Home/Top Sites and signed Authenticator policy verified.'

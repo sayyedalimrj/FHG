@@ -21,7 +21,7 @@ These files are installer/maintenance helpers, not Gecko/XUL runtime or the Hidd
 - Search-engine suggestions and Mozilla sponsored/online suggestions while typing.
 - Telemetry and Firefox Studies.
 - Firefox's own unsupervised in-app automatic updating, to ensure new binaries can be audited by the app-scoped WFP guard.
-- Existing FHG traffic routing remains fixed to SOCKS5 127.0.0.1:12334 with remote proxy DNS and no bypass list.
+- Existing FHG traffic routing remains fixed to SOCKS5 127.0.0.1:12345 with remote proxy DNS and no bypass list.
 - WebRTC remains disabled in this privacy-focused alpha until a voice-compatible proxy-only configuration is tested against IP/DNS leakage.
 
 These policies generally simplify startup/user interface and background activity; **they do not physically shrink a DLL or reliably reduce page RAM by a large amount**.

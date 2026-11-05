@@ -1,3 +1,11 @@
+## FHG Proxy v0.5.0-rc.2 — Independent browser / port 12345
+
+**[GitHub Release for Windows x64](https://github.com/sayyedalimrj/FHG/releases/tag/v0.5.0-rc.2)** (experimental prerelease; published only if the corresponding CI build succeeds). This build is separately branded as **FHG Proxy**, with a different Windows single-instance mutex, title, icon, portable data directory, and auto-start identity so users can keep the vendor's Hiddify installed and running. It locks SOCKS5 **127.0.0.1:12345** in Firefox, Core, read-only settings and the application-specific WFP guard. It checks for a port collision before launching. Do not install into Program Files; extract to a writable private folder. WebRTC is disabled.
+
+[Release notes, attribution, licensing caveats and security limitations](docs/RELEASE-v0.5.0-rc.2.md) · [source rebrand patch](packaging/rebrand-hiddify.py) · [source proxy-only patch](packaging/patch-hiddify-proxy-only.py)
+
+---
+
 ## Proxy-only source-modified Hiddify (v0.5 development build)
 
 The requested lock is implemented in **Hiddify's Flutter source** (not as UI CSS or a Windows launcher trick). Based on official v5.5.5, the [auditable patch](packaging/patch-hiddify-proxy-only.py) and [Windows source-build workflow](.github/workflows/hiddify-proxy-only.yml) enforce:

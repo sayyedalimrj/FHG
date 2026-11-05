@@ -50,4 +50,4 @@ Web ChatGPT Voice uses browser microphone access; other AI apps may depend on We
 - The FHG guard's **scope and Hiddify Core DIRECT routing limitations remain unchanged**. Slimming does not prove leak-free browsing.
 - For more meaningful total ZIP size reductions, consider replacing the 49 MiB extracted .NET self-contained launcher with an independently verified native launcher; this would affect packaging size rather than Firefox's runtime size and is **not implemented here**.
 
-[Build pipeline](../.github/workflows/firefox-slim-offline.yml) | [Mozilla enterprise policy reference](https://firefox-admin-docs.mozilla.org/reference/policies/) | [Mozilla website](https://www.firefox.com/)
+[Build pipeline](../.github/workflows/hiddify-proxy-only.yml) | [Mozilla enterprise policy reference](https://firefox-admin-docs.mozilla.org/reference/policies/) | [Mozilla website](https://www.firefox.com/)

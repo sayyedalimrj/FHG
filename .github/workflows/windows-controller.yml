@@ -1,4 +1,4 @@
-name: Windows FHG controller x64
+name: ARCHIVED DO NOT BUILD - old WPF FHG controller (12334)
 on:
   push:
     paths:
@@ -20,6 +20,8 @@ on:
 
 jobs:
   build:
+    # This legacy workflow is quarantined: do not produce user-facing artifacts.
+    if: ${{ false }}
     runs-on: windows-2022
     permissions:
       contents: read
@@ -133,9 +135,9 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish FHG alpha to GitHub Releases
+    # Old releases are historical only, never automatically republished.
+    if: ${{ false }}    name: Publish FHG alpha to GitHub Releases
     needs: [build]
-    if: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v0.3.0-alpha.1') }}"
     runs-on: ubuntu-latest
     permissions:
       contents: write

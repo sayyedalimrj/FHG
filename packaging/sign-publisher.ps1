@@ -1,11 +1,15 @@
 param(
  [Parameter(Mandatory=$true)][string]$Controller,
  [Parameter(Mandatory=$true)][string]$Guard,
- [string]$ProxyExe = ''
+ [string]$ProxyExe = '',
+ [string]$AccountManager = '',
+ [string]$InstallerExe = ''
 )
 $ErrorActionPreference='Stop'
 $exe=@((Resolve-Path $Controller).Path,(Resolve-Path $Guard).Path)
 if (-not [string]::IsNullOrWhiteSpace($ProxyExe)) { $exe += (Resolve-Path $ProxyExe).Path }
+if (-not [string]::IsNullOrWhiteSpace($AccountManager)) { $exe += (Resolve-Path $AccountManager).Path }
+if (-not [string]::IsNullOrWhiteSpace($InstallerExe)) { $exe += (Resolve-Path $InstallerExe).Path }
 # A real publisher signature requires a private code-signing certificate.
 # GitHub does not contain the private key. Optional repository Actions secrets are:
 #   FHG_SIGNING_PFX_BASE64, FHG_SIGNING_PFX_PASSWORD

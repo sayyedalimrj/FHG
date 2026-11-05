@@ -68,7 +68,7 @@ const
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  InstallPath, HostExe, ManifestPath, Payload, SignedAddon: String;
+  InstallPath, HostExe, ManifestPath, Payload, SignedAddon, EscapedHost: String;
 begin
   if CurStep <> ssPostInstall then Exit;
   InstallPath := ExpandConstant('{app}');
@@ -78,8 +78,10 @@ begin
   if not FileExists(HostExe) then
     RaiseException('Signed FHG Authenticator included without native host');
   ManifestPath := AddBackslash(InstallPath) + 'FHGNativeHost.json';
+  EscapedHost := HostExe;
+  StringChangeEx(EscapedHost, '\', '\\', True);
   Payload := '{"name":"fhg.authenticator","description":"Local FHG DPAPI vault bridge","path":"' +
-    StringChangeEx(HostExe, '\', '\\', True) +
+    EscapedHost +
     '","type":"stdio","allowed_extensions":["fhg-authenticator@fhg.local"]}';
   if not SaveStringToFile(ManifestPath, Payload, False) then
     RaiseException('Cannot create FHG Authenticator native messaging manifest');

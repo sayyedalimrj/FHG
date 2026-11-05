@@ -261,7 +261,7 @@ internal static class Program
             shortcut.TargetPath = Path.Combine(Root, "FHG.exe");
             shortcut.WorkingDirectory = Root;
             shortcut.IconLocation = Path.Combine(Root, "FHG.exe") + ",0";
-            shortcut.Description = "Original Hiddify interface + isolated FHG Firefox";
+            shortcut.Description = "FHG Proxy (independent Hiddify-based client) + isolated Firefox";
             shortcut.Save();
         }
         catch { /* no shortcut should prevent the browser from starting */ }

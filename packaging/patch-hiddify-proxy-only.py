@@ -190,6 +190,30 @@ replace(p,
 p = "lib/features/settings/overview/sections/general_page.dart"
 replace(p, "          const EnableAnalyticsPrefTile(),", "          // FHG: analytics is disabled and its toggle is removed.")
 
+# 5) Prevent Hiddify's own upstream updater from replacing the modified
+# proxy-locked binary with an ordinary vendor build, which could restore
+# system-proxy/VPN options. FHG will supply complete vetted updates.
+p = "lib/features/app_update/notifier/app_update_notifier.dart"
+update_path = root / p
+update_text = update_path.read_text(encoding="utf-8")
+check_pattern = r"  Future<AppUpdateState> check\(\) async \{.*?(?=  PreferencesEntry<int, dynamic> get _lastCheckPref)"
+check_repl = """  Future<AppUpdateState> check() async {
+    return state = const AppUpdateState.disabled();
+  }
+
+"""
+update_text, count = re.subn(check_pattern, check_repl, update_text, flags=re.DOTALL)
+if count != 1:
+    raise SystemExit("Cannot disable upstream Hiddify update checker")
+startup_pattern = r"  Future<RemoteVersionEntity\?> checkOnStart\(\) async \{.*?(?=  Future<void> ignoreRelease)"
+startup_repl = """  Future<RemoteVersionEntity?> checkOnStart() async => null;
+
+"""
+update_text, count = re.subn(startup_pattern, startup_repl, update_text, flags=re.DOTALL)
+if count != 1:
+    raise SystemExit("Cannot disable upstream Hiddify startup update prompt")
+update_path.write_text(update_text, encoding="utf-8", newline="\n")
+
 # Assert all important invariants statically, before any expensive Flutter build.
 config = (root / "lib/features/settings/data/config_option_repository.dart").read_text(encoding="utf-8")
 for marker in ("'mixed-port': 12334", "'enable-tun': false", "'set-system-proxy': false",

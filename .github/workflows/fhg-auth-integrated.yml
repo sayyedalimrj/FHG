@@ -30,6 +30,8 @@ jobs:
             node --check (Join-Path native/fhg-authenticator $f)
             if ($LASTEXITCODE -ne 0) { throw "Extension JS invalid: $f" }
           }
+          node native/fhg-authenticator/test-background.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Firefox origin/message regression failed' }
       - name: Run local DPAPI and TOTP regression tests
         shell: pwsh
         run: |

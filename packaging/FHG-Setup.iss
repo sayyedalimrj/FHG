@@ -58,14 +58,3 @@ Name: "{userprograms}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; Wo
 
 [Run]
 Filename: "{app}\FHGAccountManager.exe"; Description: "Open FHG Accounts and complete your initial setup"; Flags: nowait postinstall skipifsilent
-
-[Code]
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-  if MsgBox('FHG installs separately from your normal Hiddify and Firefox.' + #13#10 +
-     'Your account archive lives under your Windows user profile, not in the selected program folder.' + #13#10 +
-     'The FHG Guard will request Administrator approval only when initially needed.' + #13#10#13#10 +
-     'Continue installation?', mbConfirmation, MB_YESNO) <> IDYES then
-    Result := False;
-end;

@@ -52,12 +52,29 @@ internal static class Program
                 return 2;
             }
 
-            // Shortcuts belong to the unelevated user, never the Administrator
-            // account supplied to UAC. Every shortcut routes through FHG.exe,
-            // not the unsigned FHGProxy.exe directly.
-            TryCreateDesktopShortcuts();
+            // Shortcuts always route through FHG.exe, not raw FHGProxy.exe.
             bool proxyOnly = Environment.GetCommandLineArgs().Skip(1)
                 .Any(a => a.Equals("--proxy-only", StringComparison.OrdinalIgnoreCase));
+            bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
+                .IsInRole(WindowsBuiltInRole.Administrator);
+            if (elevated)
+            {
+                // If someone manually selected Run as Administrator, install
+                // only the Guard, then EXIT. Never inherit an elevated token
+                // into Firefox's sandbox or the user-facing proxy GUI.
+                if (!proxyOnly && !EnsureGuard())
+                {
+                    Warn("The initial network guard installation failed. " +
+                         "Firefox remains closed. Details: " + GuardLog);
+                    return 6;
+                }
+                TryCreateDesktopShortcuts();
+                Warn("FHG protection is ready. For security, FHG Proxy and " +
+                     "Firefox do NOT run as Administrator. Open the FHG Firefox " +
+                     "or FHG Proxy desktop shortcut normally.");
+                return 0;
+            }
+            TryCreateDesktopShortcuts();
 
             // For the normal entry point, ask for elevation of ONLY FHGGuard.
             // The browser and subscription UI remain unelevated; elevating an
@@ -137,9 +154,9 @@ internal static class Program
             // Do not try to bind a port already used by the user's regular Hiddify.
             // If it is occupied, fail closed before Firefox can be started.
             if (System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties()
-                .GetActiveTcpListeners().Any(endpoint => endpoint.Port == 12345 || endpoint.Port == 27178))
+                .GetActiveTcpListeners().Any(endpoint => endpoint.Port == 12345 || endpoint.Port == 27178 || endpoint.Port == 26756))
             {
-                Warn("FHG cannot start: either SOCKS 12345 or internal control 27178 is in use. " +
+                Warn("FHG cannot start: SOCKS 12345, internal gRPC 27178, or Clash API 26756 is occupied. " +
                      "Do not close your normal Hiddify. Inspect which application owns the port, and retry.");
                 return false;
             }

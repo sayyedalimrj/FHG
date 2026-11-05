@@ -115,7 +115,7 @@ jobs:
           New-Item -ItemType Directory -Force stage | Out-Null
           & $z x FHG-base.zip -ostage -y | Out-Null
           if ($LASTEXITCODE -ne 0) {throw 'Base ZIP extraction failed'}
-          foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/FHGProxy.exe')){
+          foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/Hiddify.exe')){
             if (!(Test-Path $f)) {throw "Missing expected FHG base file: $f"}
           }
           Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
@@ -176,8 +176,8 @@ jobs:
         with:
           name: FHG-ProxyOnly-12345-Windows-x64-rc2
           path: |
-            FHG-proxy-only-alpha-win-x64.zip
-            FHG-proxy-only-alpha-win-x64.zip.sha256
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.0-rc.2.zip
+            FHG-ProxyOnly-12345-Windows-x64-v0.5.0-rc.2.zip.sha256
             FHG-HIDDIFY-SOURCE.patch
           if-no-files-found: error
       - name: Publish GitHub prerelease with directly downloadable ZIP

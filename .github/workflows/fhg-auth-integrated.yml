@@ -1,0 +1,153 @@
+name: FHG native Authenticator and trusted login integration
+on:
+  push:
+    branches: [feature-exe-installer-dpapi-accounts-20261105]
+    paths:
+      - native/auth-native-host/**
+      - native/fhg-authenticator/**
+      - native/account-manager/**
+      - native/original-ui/**
+      - packaging/FHG-Setup.iss
+      - .github/workflows/fhg-auth-integrated.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Validate official-login origins and extension manifest
+        shell: pwsh
+        run: |
+          python -c "import json; p=json.load(open('native/fhg-authenticator/manifest.json')); assert p['browser_specific_settings']['gecko']['id']=='fhg-authenticator@fhg.local'; assert p['permissions']==['nativeMessaging','clipboardWrite']; assert set(p['host_permissions'])=={'https://chatgpt.com/*','https://auth.openai.com/*'}; print('PASS: narrow browser permissions')"
+          if ($LASTEXITCODE -ne 0) { throw 'Unsafe extension permissions' }
+          foreach ($f in @('background.js','login.js','popup.js')) {
+            node --check (Join-Path native/fhg-authenticator $f)
+            if ($LASTEXITCODE -ne 0) { throw "Extension JS invalid: $f" }
+          }
+      - name: Run local DPAPI and TOTP regression tests
+        shell: pwsh
+        run: |
+          dotnet run --project native/account-vault-tests/FHG.VaultTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Vault tests failed' }
+      - name: Build native host, Account Manager and launcher
+        shell: pwsh
+        run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+          if ($LASTEXITCODE -ne 0) { throw 'Icon creation failed' }
+          foreach ($item in @(
+            @('native/auth-native-host/FHGNativeHost.csproj','publish-host'),
+            @('native/account-manager/FHGAccountManager.csproj','publish-accounts'),
+            @('native/original-ui/FHG.csproj','publish-launcher')
+          )) {
+            dotnet publish $item[0] -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o $item[1]
+            if ($LASTEXITCODE -ne 0) { throw "Failed to compile $($item[0])" }
+          }
+          foreach ($p in @('publish-host/FHGNativeHost.exe','publish-accounts/FHGAccountManager.exe','publish-launcher/FHG.exe')) {
+            if (!(Test-Path $p)) { throw "Missing native binary: $p" }
+          }
+      - name: Preserve auditable extension source package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path native/fhg-authenticator/* -DestinationPath FHG-Authenticator-UNSIGNED-SOURCE.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-native-authenticator-build-only
+          path: |
+            publish-host/FHGNativeHost.exe
+            publish-accounts/FHGAccountManager.exe
+            publish-launcher/FHG.exe
+            FHG-Authenticator-UNSIGNED-SOURCE.zip
+          retention-days: 7
+      - name: Sign FHG Firefox extension through Mozilla AMO (unlisted)
+        id: amo
+        shell: pwsh
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.FHG_AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.FHG_AMO_JWT_SECRET }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WEB_EXT_API_KEY) -or [string]::IsNullOrWhiteSpace($env:WEB_EXT_API_SECRET)) {
+            Write-Host 'Mozilla AMO API credentials absent. Native binaries and extension SOURCE compiled, but no auto-login browser build may be published.'
+            "signed=no" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          npm exec --yes --package web-ext -- web-ext sign --source-dir native/fhg-authenticator --artifacts-dir signed-extension --channel unlisted --api-key $env:WEB_EXT_API_KEY --api-secret $env:WEB_EXT_API_SECRET
+          if ($LASTEXITCODE -ne 0) { throw 'Mozilla XPI signing failed; refusing incomplete integration release' }
+          $xpi=@(Get-ChildItem signed-extension -Filter *.xpi -File)
+          if ($xpi.Count -ne 1) { throw 'Expected precisely one Mozilla-signed XPI' }
+          "signed=yes" >> $env:GITHUB_OUTPUT
+      - name: Get verified existing Firefox/Hiddify installer unchanged
+        if: steps.amo.outputs.signed == 'yes'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v0.6.0-test.3 --repo $env:GITHUB_REPOSITORY --pattern FHG-Setup-Windows-x64-0.6.0-preview.exe --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to download pinned baseline' }
+          $base=Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          $hash=(Get-FileHash $base -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '529ff15ae259ea51aa1bd668336f125bf39d2245ae1ccb34293c709bb2dd9698') {
+            throw 'Unexpected baseline hash; never replace vendor Firefox/Hiddify silently'
+          }
+          $dest=Join-Path $env:RUNNER_TEMP 'FHGStableStage'
+          $result=Start-Process -FilePath $base -PassThru -Wait -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$dest))
+          if ($result.ExitCode -ne 0) { throw 'Could not unpack old installer' }
+          New-Item -ItemType Directory -Path stage -Force | Out-Null
+          Copy-Item (Join-Path $dest '*') stage -Recurse -Force
+          $env:GITHUB_OUTPUT | Out-Null
+          foreach ($p in @('Hiddify/FHGProxy.exe','Firefox/firefox.exe','FHGGuard.exe')) {
+            if ((Get-FileHash (Join-Path $dest $p)).Hash -ne (Get-FileHash (Join-Path stage $p)).Hash) {
+              throw "Protected unchanged component differs: $p"
+            }
+          }
+      - name: Stage Mozilla-signed extension and native binaries
+        if: steps.amo.outputs.signed == 'yes'
+        shell: pwsh
+        run: |
+          Copy-Item publish-host/FHGNativeHost.exe stage/FHGNativeHost.exe -Force
+          Copy-Item publish-accounts/FHGAccountManager.exe stage/FHGAccountManager.exe -Force
+          Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
+          $xpi=(Get-ChildItem signed-extension -Filter *.xpi -File | Select-Object -First 1).FullName
+          $dest='stage/Firefox/distribution/fhg-auto-authenticator.xpi'
+          Copy-Item $xpi $dest -Force
+          $hash=(Get-FileHash $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($dest+'.sha256'), ($hash+'  fhg-auto-authenticator.xpi'+[Environment]::NewLine),[Text.Encoding]::ASCII)
+          $zip=[IO.Compression.ZipFile]::OpenRead((Resolve-Path $dest).Path)
+          try {
+            $entries=@($zip.Entries | ForEach-Object { $_.FullName })
+            if (-not ($entries | Where-Object { $_ -match '^META-INF/.+\.rsa$' })) {throw 'No Mozilla-signed extension signature'}
+            $manifest=$zip.GetEntry('manifest.json')
+            if ($null -eq $manifest) { throw 'Missing add-on manifest' }
+          } finally { $zip.Dispose() }
+      - name: Build & smoke-test signed-integrated Windows installer
+        if: steps.amo.outputs.signed == 'yes'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno setup install failed' }
+          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' packaging/FHG-Setup.iss
+          if ($LASTEXITCODE -ne 0) {throw 'Integrated installer build failed'}
+          $exe='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          $dest=Join-Path $env:RUNNER_TEMP 'FHGIntegratedSmoke'
+          $out=Start-Process -FilePath (Resolve-Path $exe).Path -PassThru -Wait -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$dest))
+          if ($out.ExitCode -ne 0) {throw 'Integrated installer smoke test failed'}
+          foreach ($p in @('FHG.exe','FHGAccountManager.exe','FHGNativeHost.exe','Firefox/distribution/fhg-auto-authenticator.xpi','Hiddify/FHGProxy.exe','Firefox/firefox.exe','FHGGuard.exe','FHGNativeHost.json')) {
+            if (!(Test-Path (Join-Path $dest $p))) { throw "Missing integrated build asset: $p" }
+          }
+          $manifest=Get-Content (Join-Path $dest 'FHGNativeHost.json') -Raw | ConvertFrom-Json
+          if ($manifest.allowed_extensions[0] -ne 'fhg-authenticator@fhg.local') {throw 'Native Messaging wrong addon ID'}
+          if (!(Test-Path (Join-Path $dest 'Firefox/distribution/fhg-auto-authenticator.xpi.sha256'))) {throw 'Unsigned or unverified extension'}
+          Write-Host 'PASS: signed extension bundled and Windows Native Messaging manifest installed'
+      - uses: actions/upload-artifact@v4
+        if: steps.amo.outputs.signed == 'yes'
+        with:
+          name: FHG-SIGNED-EXTENSION-INTEGRATION-WINDOWS-TEST
+          path: |
+            installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe
+            signed-extension/*.xpi
+          retention-days: 7

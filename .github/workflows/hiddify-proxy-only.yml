@@ -33,6 +33,10 @@ jobs:
           foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12334", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
             if (!$config.Contains($key)) {throw "Runtime invariant missing: $key"}
           }
+          $nav=Get-Content vendor/lib/core/router/adaptive_layout/my_adaptive_layout.dart -Raw
+          if ($nav.Contains('ShellRouteAction(Icons.description_rounded, t.pages.logs.title)') -or $nav.Contains('ShellRouteAction(Icons.info_rounded, t.pages.about.title)')) {throw 'Log/About buttons remain in desktop UI'}
+          $locale=Get-Content vendor/lib/core/localization/locale_preferences.dart -Raw
+          if (!$locale.Contains('if (persisted == null) return AppLocale.en;')) {throw 'English is not the default locale'}
           $analytics=Get-Content vendor/lib/core/analytics/analytics_controller.dart -Raw
           if ($analytics.Contains('SentryFlutter.init')) {throw 'Sentry activation still present'}
           Write-Host 'PASS: source-config runtime restrictions and disabled analytics'
@@ -57,6 +61,30 @@ jobs:
           if ($LASTEXITCODE -ne 0) {throw 'Patched Flutter compile failed'}
           if (!(Test-Path 'build/windows/x64/runner/Release/Hiddify.exe')) {throw 'No patched Hiddify.exe'}
           if (!(Test-Path 'build/windows/x64/runner/Release/data/flutter_assets')) {throw 'No patched Flutter UI assets'}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Compile updated FHG launcher and fix WFP guard non-admin status
+        shell: pwsh
+        run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+          dotnet publish native/original-ui/FHG.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-launcher
+          if ($LASTEXITCODE -ne 0) {throw 'FHG launcher compile failed'}
+          cmake -S native/original-ui -B build-guard -G "Visual Studio 17 2022" -A x64
+          if ($LASTEXITCODE -ne 0) {throw 'FHG Guard configure failed'}
+          cmake --build build-guard --config Release --parallel
+          if ($LASTEXITCODE -ne 0) {throw 'FHG Guard build failed'}
+          cmake --build build-guard --config Release --target FHGProbe
+          if ($LASTEXITCODE -ne 0) {throw 'FHG probe build failed'}
+          if (!(Test-Path 'publish-launcher/FHG.exe') -or !(Test-Path 'build-guard/Release/FHGGuard.exe')) {throw 'Launcher or Guard missing'}
+      - name: Regression test app-only WFP protection (TCP IPv4 and IPv6)
+        shell: pwsh
+        run: |
+          ./native/guard/test-egress.ps1 -GuardPath (Resolve-Path 'build-guard/Release/FHGGuard.exe').Path -ProbePath (Resolve-Path 'build-guard/Release/FHGProbe.exe').Path
+      - name: Regression test unauthenticated startup without repeat UAC
+        shell: pwsh
+        run: |
+          ./native/guard/test-nonadmin-status.ps1 -GuardPath (Resolve-Path 'build-guard/Release/FHGGuard.exe').Path -ProbePath (Resolve-Path 'build-guard/Release/FHGProbe.exe').Path
       - name: Fetch validated FHG base v0.4
         shell: pwsh
         run: |
@@ -71,6 +99,9 @@ jobs:
           foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/Hiddify.exe')){
             if (!(Test-Path $f)) {throw "Missing expected FHG base file: $f"}
           }
+          Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
+          Copy-Item build-guard/Release/FHGGuard.exe stage/FHGGuard.exe -Force
+          Write-Host 'PASS: old faulty guard and launcher replaced by rebuilt non-admin-readable WFP guard.'
       - name: Replace original UI assets with source-patched Hiddify
         shell: pwsh
         run: |

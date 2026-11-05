@@ -26,7 +26,28 @@ try {
         "no raw account secret in disk vault");
     string path = AccountVault.AccountFirefoxDir(a.Id);
     Check(path.EndsWith(Path.Combine(a.Id, "FirefoxProfile")), "browser isolation");
-    Console.WriteLine("PASS: per-user DPAPI archive, account selection, isolated profile and RFC 6238 TOTP");
+    // End-user regression: edits retain per-account browser ID and encrypted vault,
+    // deletion removes only vault record, not the Firefox profile/session directory.
+    string updatedName = name + "-EDITED";
+    string updatedSub = "https://sub.example.invalid/changed?token=NOT-REAL";
+    string updatedPass = "TESTONLY-new-password";
+    AccountVault.UpdateAccount(a.Id, updatedName, updatedPass, seed, updatedSub);
+    var changed = AccountVault.Load().Single(x => x.Id == a.Id);
+    Check(changed.Label == updatedName && changed.Password == updatedPass &&
+          changed.SubscriptionUrl == updatedSub, "edit every account field while preserving ID");
+    Check(AccountVault.ActiveId() == a.Id, "edited active account remains active");
+    bool badSeedWasRejected = false;
+    try { AccountVault.UpdateAccount(a.Id, updatedName, updatedPass, "NOT-BASE32!", updatedSub); }
+    catch (FormatException) { badSeedWasRejected = true; }
+    Check(badSeedWasRejected, "invalid 2FA seed rejected without replacing saved credentials");
+    Check(AccountVault.Load().Single(x => x.Id == a.Id).TotpSeed == seed, "bad edit rollback");
+    Directory.CreateDirectory(path);
+    File.WriteAllText(Path.Combine(path, "keep.txt"), "retained session");
+    AccountVault.DeleteAccount(a.Id);
+    Check(!AccountVault.Load().Any(x => x.Id == a.Id), "deleted account no longer in encrypted vault");
+    Check(AccountVault.ActiveId() == null, "deleted active account ID cleared");
+    Check(File.Exists(Path.Combine(path, "keep.txt")), "deleted account profile preserved for explicit cleanup");
+    Console.WriteLine("PASS: DPAPI archive, edit/delete, isolated profile preservation and RFC 6238 TOTP");
 }
 finally {
     try { Directory.Delete(folder, true); } catch {}

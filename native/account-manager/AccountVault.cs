@@ -71,19 +71,10 @@ public sealed class AccountVault
         try
         {
             if (lines.Length != 4) throw new FormatException("The file must contain exactly 4 lines.");
-            var label = lines[0].Trim();
-            var password = lines[1];
-            var totp = Regex.Replace(lines[2].ToUpperInvariant(), @"[\s-]", "");
-            var url = lines[3].Trim();
-
-            if (label.Length is < 1 or > 200 || password.Length is < 1 or > 4096)
-                throw new FormatException("Account name/password is missing or too long.");
-            if (totp.Length is < 16 or > 512 || !Regex.IsMatch(totp, @"^[A-Z2-7]+=*$"))
-                throw new FormatException("TOTP key must be a valid Base32 string.");
-            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
-                uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0 ||
-                uri.Host.Length == 0 || url.Length > 8192)
-                throw new FormatException("Subscription URL must use HTTPS without embedded user credentials.");
+            var label = ValidateLabel(lines[0]);
+            var password = ValidatePassword(lines[1]);
+            var totp = ValidateTotpSeed(lines[2]);
+            var url = ValidateSubscription(lines[3]);
 
             var all = Load().ToList();
             if (all.Any(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase)))
@@ -96,17 +87,83 @@ public sealed class AccountVault
         finally { Array.Clear(lines); }
     }
 
+    private static string ValidateLabel(string label)
+    {
+        label = label.Trim();
+        if (label.Length is < 1 or > 200) throw new FormatException("Account name must be between 1 and 200 characters.");
+        if (label.Contains('\n') || label.Contains('\r')) throw new FormatException("Account name must be one line.");
+        return label;
+    }
+
+    private static string ValidatePassword(string password)
+    {
+        if (password.Length is < 1 or > 4096) throw new FormatException("Password is empty or exceeds 4096 characters.");
+        return password;
+    }
+
+    private static string ValidateTotpSeed(string seed)
+    {
+        // Accept optional whitespace and '=' padding, but decode before saving.
+        var clean = Regex.Replace(seed.ToUpperInvariant(), @"[\s-]", "").TrimEnd('=');
+        if (clean.Length is < 16 or > 512 || !Regex.IsMatch(clean, @"\A[A-Z2-7]+\z"))
+            throw new FormatException("Authenticator secret must be a valid Base32 key (at least 16 characters).");
+        try { _ = GenerateTotp(clean, DateTimeOffset.UtcNow); }
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
+        { throw new FormatException("Authenticator secret could not generate a valid six-digit code."); }
+        return clean;
+    }
+
+    private static string ValidateSubscription(string url)
+    {
+        url = url.Trim();
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0 ||
+            uri.Host.Length == 0 || url.Length > 8192)
+            throw new FormatException("Subscription address must be a valid HTTPS URL without embedded username/password.");
+        return url;
+    }
+
+    public static void UpdateAccount(string id, string label, string password, string totpSeed, string subscriptionUrl)
+    {
+        if (!ValidId(id)) throw new InvalidOperationException("Invalid account identifier.");
+        label = ValidateLabel(label);
+        password = ValidatePassword(password);
+        totpSeed = ValidateTotpSeed(totpSeed);
+        subscriptionUrl = ValidateSubscription(subscriptionUrl);
+        var all = Load().ToList();
+        int index = all.FindIndex(a => a.Id == id);
+        if (index < 0) throw new InvalidOperationException("Account no longer exists.");
+        if (all.Any(a => a.Id != id && a.Label.Equals(label, StringComparison.OrdinalIgnoreCase)))
+            throw new FormatException("Another account already uses this name. Choose a distinct account name.");
+        // Stable ID keeps isolated Firefox profile and current selected account intact.
+        all[index] = all[index] with {
+            Label = label, Password = password, TotpSeed = totpSeed, SubscriptionUrl = subscriptionUrl
+        };
+        Write(all);
+    }
+
+    public static void DeleteAccount(string id)
+    {
+        if (!ValidId(id)) throw new InvalidOperationException("Invalid account identifier.");
+        var all = Load().ToList();
+        int index = all.FindIndex(a => a.Id == id);
+        if (index < 0) throw new InvalidOperationException("Account no longer exists.");
+        all.RemoveAt(index);
+        // This removes credentials only; per-account Firefox data remains for
+        // explicit separately confirmed cleanup. Never delete a live profile.
+        Write(all);
+        if (ActiveId() == id)
+        {
+            try { if (File.Exists(ActiveFile)) File.Delete(ActiveFile); }
+            catch (IOException) { /* UI shows current state on next load */ }
+        }
+    }
+
     public static void UpdateSubscription(string id, string newUrl)
     {
-        if (!Uri.TryCreate(newUrl, UriKind.Absolute, out var uri) ||
-            uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0 ||
-            uri.Host.Length == 0 || newUrl.Length > 8192)
-            throw new FormatException("Subscription must be an HTTPS URL.");
-        var accounts = Load().ToList();
-        int i = accounts.FindIndex(x => x.Id == id);
-        if (i < 0) throw new InvalidOperationException("Account not found.");
-        accounts[i] = accounts[i] with { SubscriptionUrl = newUrl };
-        Write(accounts);
+        var account = Load().FirstOrDefault(x => x.Id == id) ??
+            throw new InvalidOperationException("Account not found.");
+        UpdateAccount(id, account.Label, account.Password, account.TotpSeed, newUrl);
     }
 
     public static void SetActive(string id)

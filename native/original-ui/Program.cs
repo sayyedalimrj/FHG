@@ -169,7 +169,7 @@ internal static class Program
             "This does NOT turn Windows Firewall profiles on/off or change your regular Firefox.\n\n" +
             "The Windows Administrator prompt appears only when rules are missing or invalid.\n\nInstall now?",
             ProductName + " - network protection", MessageBoxButtons.YesNo,
-            MessageBoxIcon.Shield, MessageBoxDefaultButton.Button1);
+            MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
         if (answer != DialogResult.Yes) return false;
 
         try

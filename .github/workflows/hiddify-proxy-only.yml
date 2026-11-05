@@ -1,0 +1,115 @@
+name: FHG patched Hiddify Proxy-only Windows
+on:
+  push:
+    paths:
+      - 'packaging/patch-hiddify-proxy-only.py'
+      - '.github/workflows/hiddify-proxy-only.yml'
+      - 'docs/HIDDIFY-PROXY-ONLY.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned upstream Hiddify
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v5.5.5 https://github.com/hiddify/hiddify-app.git vendor
+          if ($LASTEXITCODE -ne 0) {throw 'Upstream clone failed'}
+          $sha=(git -C vendor rev-parse HEAD).Trim()
+          if ($sha -ne '7804cadac01419f31b1ec7802d9e1be599e66de2') {throw "Unexpected upstream commit: $sha"}
+      - name: Patch source and check network invariants
+        shell: pwsh
+        run: |
+          python packaging/patch-hiddify-proxy-only.py vendor
+          if ($LASTEXITCODE -ne 0) {throw 'Source patch failed'}
+          git -C vendor diff --check
+          if ($LASTEXITCODE -ne 0) {throw 'Source patch whitespace error'}
+          git -C vendor diff | Out-File -FilePath FHG-HIDDIFY-SOURCE.patch -Encoding utf8
+          $config=Get-Content vendor/lib/features/settings/data/config_option_repository.dart -Raw
+          foreach($key in @("'enable-tun': false", "'set-system-proxy': false", "'mixed-port': 12334", "'chain-status': ChainStatus.off.key", "'allow-connection-from-lan': false")) {
+            if (!$config.Contains($key)) {throw "Runtime invariant missing: $key"}
+          }
+          $analytics=Get-Content vendor/lib/core/analytics/analytics_controller.dart -Raw
+          if ($analytics.Contains('SentryFlutter.init')) {throw 'Sentry activation still present'}
+          Write-Host 'PASS: source-config runtime restrictions and disabled analytics'
+      - uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+      - name: Prepare upstream Flutter and native Core
+        shell: bash
+        working-directory: vendor
+        run: |
+          set -euo pipefail
+          make windows-prepare
+      - name: Compile patched native Windows Flutter UI
+        shell: pwsh
+        working-directory: vendor
+        env:
+          SENTRY_DSN: ''
+        run: |
+          flutter build windows --release --target lib/main_prod.dart --dart-define=portable=true --dart-define=sentry_dsn=
+          if ($LASTEXITCODE -ne 0) {throw 'Patched Flutter compile failed'}
+          if (!(Test-Path 'build/windows/x64/runner/Release/Hiddify.exe')) {throw 'No patched Hiddify.exe'}
+          if (!(Test-Path 'build/windows/x64/runner/Release/data/flutter_assets')) {throw 'No patched Flutter UI assets'}
+      - name: Fetch validated FHG base v0.4
+        shell: pwsh
+        run: |
+          $url='https://github.com/sayyedalimrj/FHG/releases/download/v0.4.0-alpha.1/FHG-original-Hiddify-UI-windows-x64.zip'
+          Invoke-WebRequest -Uri $url -OutFile FHG-base.zip
+          $z='C:\Program Files\7-Zip\7z.exe'
+          & $z t FHG-base.zip | Out-Null
+          if ($LASTEXITCODE -ne 0) {throw 'Base ZIP invalid'}
+          New-Item -ItemType Directory -Force stage | Out-Null
+          & $z x FHG-base.zip -ostage -y | Out-Null
+          if ($LASTEXITCODE -ne 0) {throw 'Base ZIP extraction failed'}
+          foreach($f in @('stage/FHG.exe','stage/FHGGuard.exe','stage/Firefox/firefox.exe','stage/Hiddify/Hiddify.exe')){
+            if (!(Test-Path $f)) {throw "Missing expected FHG base file: $f"}
+          }
+      - name: Replace original UI assets with source-patched Hiddify
+        shell: pwsh
+        run: |
+          $release='vendor/build/windows/x64/runner/Release'
+          Remove-Item stage/Hiddify/data -Recurse -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $release -Force | ForEach-Object {
+            Copy-Item -LiteralPath $_.FullName -Destination stage/Hiddify -Recurse -Force
+          }
+          foreach($f in @('stage/Hiddify/Hiddify.exe','stage/Hiddify/flutter_windows.dll','stage/Hiddify/data/flutter_assets')){
+            if (!(Test-Path $f)) {throw "Patched GUI incomplete: $f"}
+          }
+          Copy-Item packaging/patch-hiddify-proxy-only.py stage/FHG-SOURCE-PATCH.py
+          Copy-Item FHG-HIDDIFY-SOURCE.patch stage/FHG-HIDDIFY-SOURCE.patch
+          Copy-Item docs/HIDDIFY-PROXY-ONLY.md stage/README-PROXY-ONLY.md
+          Copy-Item vendor/LICENSE.md stage/HIDDIFY-LICENSE.md
+          $sig=Get-AuthenticodeSignature stage/Hiddify/Hiddify.exe
+          Write-Host 'Patched Hiddify signature status:' $sig.Status
+          Write-Host 'Patched Hiddify SHA256:' (Get-FileHash stage/Hiddify/Hiddify.exe -Algorithm SHA256).Hash
+      - name: Package complete offline test artifact
+        shell: pwsh
+        run: |
+          $z='C:\Program Files\7-Zip\7z.exe'
+          $filename='FHG-proxy-only-alpha-win-x64.zip'
+          $target=Join-Path (Get-Location) $filename
+          Push-Location stage
+          try {
+            & $z a -tzip -mx=5 $target '*' | Out-Null
+            if ($LASTEXITCODE -ne 0) {throw 'ZIP pack failed'}
+          } finally {Pop-Location}
+          & $z t $target | Out-Null
+          if ($LASTEXITCODE -ne 0) {throw 'ZIP validation failed'}
+          $hash=(Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path (Get-Location) ($filename + '.sha256')),($hash+'  '+$filename+[Environment]::NewLine),[Text.Encoding]::ASCII)
+          Write-Host "PASS: ZIP integrity. SHA256 $hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-patched-Hiddify-Proxy-Only-Windows-x64-Experimental
+          path: |
+            FHG-proxy-only-alpha-win-x64.zip
+            FHG-proxy-only-alpha-win-x64.zip.sha256
+            FHG-HIDDIFY-SOURCE.patch
+          if-no-files-found: error

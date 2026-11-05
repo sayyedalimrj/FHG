@@ -374,9 +374,11 @@ internal static class Program
             return;
         }
 
+        // Different names AND different native icons; both start the trusted
+        // launcher, never expose the internal raw proxy binary directly.
         foreach (var entry in new[] {
-            (Name: "FHG Browser", Args: "", Description: "FHG secure browser and proxy"),
-            (Name: "FHG Proxy", Args: "--proxy-only", Description: "Manage FHG subscriptions, nodes and latency")
+            (Name: "FHG Firefox", Args: "", Description: "FHG isolated Firefox browser (ChatGPT)", Icon: FirefoxExe),
+            (Name: "FHG Proxy", Args: "--proxy-only", Description: "FHG Proxy: subscriptions, nodes and latency", Icon: HiddifyExe)
         })
         {
             string link = Path.Combine(desktop, entry.Name + ".lnk");
@@ -398,7 +400,7 @@ internal static class Program
                 shortcut.TargetPath = Path.Combine(Root, "FHG.exe");
                 shortcut.Arguments = entry.Args;
                 shortcut.WorkingDirectory = Root;
-                shortcut.IconLocation = Path.Combine(Root, "FHG.exe") + ",0";
+                shortcut.IconLocation = (File.Exists(entry.Icon) ? entry.Icon : Path.Combine(Root, "FHG.exe")) + ",0";
                 shortcut.Description = entry.Description;
                 shortcut.Save();
                 if (!File.Exists(link)) Log("Shortcut not created despite COM Save(): " + entry.Name);

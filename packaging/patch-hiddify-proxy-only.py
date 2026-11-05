@@ -54,6 +54,23 @@ replace(p,
     overrideValue: ServiceMode.proxy,
   );''')
 
+# The public config preference also defaults to and validates the fixed FHG port;
+# this is separate from the runtime hard clamp and protects every UI consumer.
+replace(p,
+    '''  static final mixedPort = PreferencesNotifier.create<int, int>(
+    "mixed-port",
+    12334,
+    validator: (value) => isPort(value.toString()),
+  );''',
+    '''  static final mixedPort = PreferencesNotifier.create<int, int>(
+    "mixed-port",
+    12345,
+    mapFrom: (_) => 12345,
+    mapTo: (_) => 12345,
+    validator: (value) => value == 12345,
+    overrideValue: 12345,
+  );''')
+
 # 2) Hard restrictions are imposed in the config actually sent to Hiddify Core,
 # not merely on UI widgets. This also defeats stored legacy values.
 replace(p, "    final mode = ref.watch(serviceMode);", "    const mode = ServiceMode.proxy; // FHG runtime invariant")

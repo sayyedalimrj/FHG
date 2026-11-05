@@ -21,6 +21,19 @@
         "Status": "locked"
       }
     },
-    "DisableAppUpdate": true
+    "DisableAppUpdate": true,
+    "DisableFirefoxAccounts": true,
+    "DefaultBrowserSettingEnabled": false,
+    "DontCheckDefaultBrowser": true,
+    "NoDefaultBookmarks": true,
+    "NewTabPage": false,
+    "SearchSuggestEnabled": false,
+    "FirefoxSuggest": {
+      "WebSuggestions": false,
+      "SponsoredSuggestions": false,
+      "OnlineEnabled": false,
+      "Locked": true
+    },
+    "DisableFirefoxScreenshots": true
   }
 }

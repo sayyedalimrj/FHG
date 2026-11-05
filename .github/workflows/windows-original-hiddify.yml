@@ -40,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "FHG launcher compilation failed" }
           if (!(Test-Path "publish-launcher/FHG.exe")) {throw "FHG launcher missing"}
       - name: Configure native Windows app-scoped guard
-        run: cmake -S native/guard -B build-guard -G "Visual Studio 17 2022" -A x64
+        run: cmake -S native/original-ui -B build-guard -G "Visual Studio 17 2022" -A x64
       - name: Compile guard and network probe
         shell: pwsh
         run: |

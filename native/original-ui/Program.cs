@@ -200,14 +200,9 @@ internal static class Program
         {
             // A normal installed Hiddify elsewhere on the PC is NOT used or modified.
             // If the bundled instance is already running, leave it alive.
-            string expected = Path.GetFullPath(HiddifyExe);
-            bool alreadyRunning = Process.GetProcessesByName("FHGProxy").Any(p =>
-            {
-                try { return string.Equals(Path.GetFullPath(p.MainModule?.FileName ?? ""),
-                                          expected, StringComparison.OrdinalIgnoreCase); }
-                catch { return false; }
-                finally { p.Dispose(); }
-            });
+            var owned = ProxyAutomation.OwnedProxyProcesses(HiddifyExe);
+            bool alreadyRunning = owned.Length > 0;
+            foreach (var p in owned) p.Dispose();
             if (alreadyRunning)
             {
                 if (firstRun is not null)

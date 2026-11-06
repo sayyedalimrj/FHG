@@ -19,6 +19,14 @@ try {
     var a = AccountVault.ImportFourLineFile(fake);
     Check(AccountVault.ValidId(a.Id) && a.Label == name, "account identifier and label");
     Check(AccountVault.Load().Any(x => x.Id == a.Id && x.Password == pass), "DPAPI decrypt");
+    LoginProgress.Write(a.Id, "STARTING");
+    if (LoginProgress.Read(a.Id) != "STARTING") throw new Exception("status start");
+    LoginProgress.Write(a.Id, "MANUAL_CHALLENGE");
+    if (LoginProgress.Read(a.Id) != "MANUAL_CHALLENGE") throw new Exception("manual CAPTCHA");
+    LoginProgress.Write(a.Id, "SUCCESS");
+    if (LoginProgress.Read(a.Id) != "SUCCESS") throw new Exception("verified session");
+    LoginProgress.Write(a.Id, "HANDOFF_FAILED");
+    if (LoginProgress.Read(a.Id) != "HANDOFF_FAILED") throw new Exception("handoff distinction");
     AccountVault.SetActive(a.Id);
     Check(AccountVault.ActiveId() == a.Id, "active-account selection");
     string vault = File.ReadAllText(Path.Combine(AccountVault.Root, "vault.dpapi"));

@@ -168,6 +168,12 @@ internal static class Program
                      "Re-extract a clean official FHG release; never use an unknown TOTP add-on.");
                 return 8;
             }
+            if (!TimezonePolicy.Ensure(FirefoxDir))
+            {
+                Warn("The bundled signed timezone extension failed integrity verification. " +
+                     "FHG Firefox was not started with an unverified timezone setting.");
+                return 15;
+            }
             if (!VerifyFirefoxPolicy())
             {
                 Warn("FHG Firefox proxy policy is missing or changed. Firefox was NOT started.\n\nHiddify can still be used normally.");

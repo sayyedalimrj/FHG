@@ -25,7 +25,7 @@ jobs:
           unzip -p /tmp/libbox.aar classes.jar > /tmp/libbox.jar
           echo '==== All libbox classes ===='
           jar tf /tmp/libbox.jar | grep '^io/nekohasekai/libbox/' | sed -n '1,170p'
-          for cls in Libbox SetupOptions CommandServer CommandServerHandler PlatformInterface TunOptions NetworkInterface NetworkInterfaceIterator StringIterator OverrideOptions CommandClientOptions; do
+          for cls in Libbox SetupOptions CommandServer CommandServerHandler PlatformInterface TunOptions NetworkInterface NetworkInterfaceIterator StringIterator OverrideOptions CommandClientOptions RoutePrefix RoutePrefixIterator StringBox InterfaceUpdateListener NeighborUpdateListener ConnectionOwner SystemProxyStatus LocalDNSTransport PlatformUser ShellSession BridgeOptions BridgeSession WIFIState Notification; do
             echo "==== javap $cls ===="
             javap -classpath /tmp/libbox.jar -public "io.nekohasekai.libbox.$cls" || true
           done

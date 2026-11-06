@@ -9,6 +9,7 @@ internal static class LoginProgress
     private static readonly HashSet<string> Codes = new(StringComparer.Ordinal)
     {
         "NOT_STARTED", "STARTING", "EMAIL_SUBMITTED",
+        "PASSWORD_SUBMITTED", "TOTP_SUBMITTED",
         "MANUAL_REQUIRED", "MANUAL_CHALLENGE", "VERIFYING",
         "SUCCESS", "HANDOFF_FAILED", "CANCELED", "ERROR"
     };
@@ -50,8 +51,10 @@ internal static class LoginProgress
     internal static string Display(string code) => code switch
     {
         "STARTING" => "Signing in: opening the protected browser",
-        "EMAIL_SUBMITTED" => "Email sent: follow the login steps in Firefox",
-        "MANUAL_REQUIRED" => "Action needed: finish password / 2FA in Firefox",
+        "EMAIL_SUBMITTED" => "Email submitted automatically — waiting for password",
+        "PASSWORD_SUBMITTED" => "Password submitted — waiting for verification",
+        "TOTP_SUBMITTED" => "2FA code submitted — waiting for ChatGPT",
+        "MANUAL_REQUIRED" => "Action needed: complete the blocked step in Firefox",
         "MANUAL_CHALLENGE" => "Action needed: complete CAPTCHA in Firefox",
         "VERIFYING" => "Checking the authenticated ChatGPT session",
         "SUCCESS" => "LOGIN VERIFIED — authenticated ChatGPT session",

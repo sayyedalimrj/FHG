@@ -14,7 +14,7 @@
     <AssemblyName>FHG</AssemblyName>
     <AssemblyTitle>FHG Browser</AssemblyTitle>
     <AssemblyProduct>FHG + Dedicated FHG Proxy UI</AssemblyProduct>
-    <Version>0.6.1</Version>
+    <Version>0.6.3</Version>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../account-manager/AccountVault.cs" Link="AccountVault.cs" />

@@ -133,13 +133,15 @@ jobs:
           name: FHG-Android-0.2.3-repair-beta-APK
           path: dist/FHG-Android-0.2.3-repair-beta.apk*
           if-no-files-found: error
+      # Beta 2 also tests fallback when native sing-box rejects the first
+      # provider response format, and ignores stale async account callbacks.
       - name: Publish repaired beta APK only if all compatibility checks passed
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="android-v0.2.3-repair-beta.1"
+          TAG="android-v0.2.3-repair-beta.2"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release is immutable; refusing to overwrite" >&2
             exit 1
@@ -150,6 +152,6 @@ jobs:
             dist/FHG-Android-0.2.3-repair-beta.apk \
             dist/FHG-Android-0.2.3-repair-beta.apk.sha256 \
             --target "$GITHUB_SHA" \
-            --title 'FHG Android 0.2.3 Repair Beta — Auto Profile + Real Libbox VPN' \
+            --title 'FHG Android 0.2.3 Repair Beta 2 — Auto Profile + Real Libbox VPN' \
             --notes-file android/REPAIR-v0.2.3.md \
             --prerelease --latest=false

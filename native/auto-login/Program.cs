@@ -87,6 +87,9 @@ internal static class Program
                     browser.GoTo("https://chatgpt.com/auth/login");
                     continue;
                 }
+                if (triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(25) &&
+                    submitted.Count == 0)
+                    return 20; // no recognizable form; don't delay normal browser
             }
             else if (stage == LoginStage.Email)
             {
@@ -141,7 +144,7 @@ internal static class Program
                 clock.Elapsed - whenSubmitted > TimeSpan.FromSeconds(22))
             {
                 if (stage is LoginStage.Email or LoginStage.Password or LoginStage.Totp ||
-                    stage == LoginStage.UnknownOfficial)
+                    stage is LoginStage.UnknownOfficial or LoginStage.ChatGptHome)
                     return 20;
             }
         }

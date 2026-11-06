@@ -196,7 +196,8 @@ internal static class Program
                 return 14;
             }
             InstallChatGptStartTile();
-            return OpenOneNativeFirefox(activeId);
+            bool passwordStored = PrepareFirefoxSavedPassword(activeId);
+            return OpenOneNativeFirefox(activeId, passwordStored);
         }
         catch (Exception ex)
         {
@@ -485,6 +486,64 @@ internal static class Program
         }
     }
 
+    private static bool PrepareFirefoxSavedPassword(string id)
+    {
+        string marker = Path.Combine(AccountVault.Root, id,
+            "firefox-password-imported.v1");
+        // A successful import is done only once. Changing username/password
+        // in the DPAPI account vault invalidates this non-secret marker.
+        if (File.Exists(marker)) return true;
+        if (IsProfileInUse(ProfileDir))
+        {
+            Log("Password import deferred: protected Firefox profile is open.");
+            return false;
+        }
+        string executable = Path.Combine(Root, "FHGLogin.exe");
+        string driver = Path.Combine(Root, "WebDriver", "geckodriver.exe");
+        if (!File.Exists(executable) || !File.Exists(driver))
+        {
+            Log("Offline Firefox password importer unavailable.");
+            return false;
+        }
+        try
+        {
+            var start = new ProcessStartInfo(executable)
+            {
+                WorkingDirectory = Root,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            // Pass ONLY the non-secret account ID. The helper reads the
+            // encrypted FHG vault and imports into the Firefox NSS store.
+            start.ArgumentList.Add("--save-password");
+            start.ArgumentList.Add(id);
+            using var helper = Process.Start(start);
+            if (helper == null) return false;
+            if (!helper.WaitForExit(100000))
+            {
+                try { helper.Kill(entireProcessTree: true); } catch { }
+                Log("Offline Firefox password import timed out; manual browser remains available.");
+                return false;
+            }
+            if (helper.ExitCode != 0)
+            {
+                Log("Offline Firefox password import unavailable, status " + helper.ExitCode);
+                return false;
+            }
+            // Marker reveals no email/password/hash and is safe to remove
+            // when the selected credentials are edited.
+            Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+            File.WriteAllText(marker, "IMPORTED_TO_FIREFOX_NSS_V1");
+            Log("Firefox Password Manager encrypted credential import verified.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Log("Firefox password import status: " + e.GetType().Name);
+            return false;
+        }
+    }
+
     private static bool IsProfileInUse(string profile)
     {
         // Firefox holds a native handle on parent.lock while its profile is
@@ -501,7 +560,7 @@ internal static class Program
         catch (UnauthorizedAccessException) { return true; }
     }
 
-    private static int OpenOneNativeFirefox(string accountId)
+    private static int OpenOneNativeFirefox(string accountId, bool passwordStored)
     {
         // One launcher per account at a time. Repeated clicks must never
         // produce fresh auth tabs or attempt to steal another profile's lock.
@@ -519,7 +578,8 @@ internal static class Program
             if (IsProfileInUse(ProfileDir))
             {
                 Log("Firefox is already open with the selected profile; no duplicate tab.");
-                try { LoginProgress.Write(accountId, "MANUAL_FIREFOX"); } catch { }
+                try { LoginProgress.Write(accountId,
+                    passwordStored ? "PASSWORD_SAVED" : "PASSWORD_IMPORT_FAILED"); } catch { }
                 return 0;
             }
             var info = new ProcessStartInfo(FirefoxExe)
@@ -551,7 +611,7 @@ internal static class Program
                 Log("Native Firefox exited immediately without an active profile.");
                 return 7;
             }
-            Log("Native Firefox launched; login and Firefox Save Password prompt are user-driven.");
+            Log("Native Firefox launched; all ChatGPT authentication is user-driven.");
             // Keep per-account mutex owned until Firefox exits, preventing
             // repeated Start clicks from spawning additional login tabs.
             firefox.WaitForExit();

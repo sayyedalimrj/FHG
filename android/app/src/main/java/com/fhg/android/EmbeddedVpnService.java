@@ -149,16 +149,9 @@ public final class EmbeddedVpnService extends VpnService
             if (active == null) throw new IllegalStateException("NO_ACTIVE_ACCOUNT");
             String config = new AccountStore(this).loadVpnConfig(active.id);
 
-            SetupOptions setup = new SetupOptions();
-            setup.setBasePath(getNoBackupFilesDir().getAbsolutePath());
-            setup.setWorkingPath(getFilesDir().getAbsolutePath());
-            setup.setTempPath(getCacheDir().getAbsolutePath());
-            setup.setFixAndroidStack(true);
-            setup.setLogMaxLines(500);
-            setup.setDebug(false);
-            Libbox.setup(setup);
-            // Parse/verify against the precise PINNED native engine first.
-            Libbox.checkConfig(config);
+            // Process-wide libbox setup is shared with offline profile
+            // validation, so reconnect cannot reinitialize its Go runtime.
+            VpnEngineSetup.validate(this, config);
             commandServer = new CommandServer(this, this);
             commandServer.start();
             OverrideOptions options = new OverrideOptions();

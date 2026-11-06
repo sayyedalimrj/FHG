@@ -10,7 +10,7 @@ internal static class LoginProgress
     {
         "NOT_STARTED", "STARTING", "EMAIL_SUBMITTED",
         "MANUAL_REQUIRED", "MANUAL_CHALLENGE", "VERIFYING",
-        "SUCCESS", "CANCELED", "ERROR"
+        "SUCCESS", "HANDOFF_FAILED", "CANCELED", "ERROR"
     };
 
     private static string StatePath(string id)
@@ -54,7 +54,8 @@ internal static class LoginProgress
         "MANUAL_REQUIRED" => "Action needed: finish password / 2FA in Firefox",
         "MANUAL_CHALLENGE" => "Action needed: complete CAPTCHA in Firefox",
         "VERIFYING" => "Checking the authenticated ChatGPT session",
-        "SUCCESS" => "LOGIN SUCCESSFUL — normal browser can open",
+        "SUCCESS" => "LOGIN VERIFIED — switching to normal Firefox",
+        "HANDOFF_FAILED" => "Login verified, but normal Firefox did not stay open",
         "CANCELED" => "Login canceled by user",
         "ERROR" => "Login could not be verified — see FHG diagnostics",
         _ => "Login not started"

@@ -269,6 +269,7 @@ public final class MainActivity extends Activity {
         }),48,0);
         add(advancedPanel,action("ورود کانفیگ از فایل JSON / YAML",0xff295577,this::pickProxyFile),48,8);
         add(advancedPanel,action("تنظیمات Always-on VPN و Kill Switch",0xff295577,this::openVpnSettings),48,8);
+        add(advancedPanel,action("گزارش فنی بدون اطلاعات محرمانه",0xff295577,this::shareDiagnostics),48,8);
         add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
         add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
         add(root,advancedPanel,-2,7);
@@ -545,6 +546,20 @@ public final class MainActivity extends Activity {
         lastImportError="";
         main.postDelayed(this::update,600);
     }
+    private void shareDiagnostics(){
+        boolean profile=false;
+        try {
+            AccountStore.Account a=vault.selected();
+            profile=a!=null&&vault.hasVpnConfig(a.id);
+        }catch(Exception ignored){}
+        String report=DiagnosticReport.collect(this,profile);
+        Intent share=new Intent(Intent.ACTION_SEND);
+        share.setType("text/plain");
+        share.putExtra(Intent.EXTRA_SUBJECT,"FHG Secure — VPN diagnostics");
+        share.putExtra(Intent.EXTRA_TEXT,report);
+        startActivity(Intent.createChooser(share,"اشتراک گزارش بدون رمز و اشتراک"));
+    }
+
     private void openVpnSettings(){
         try{startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}
         catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}

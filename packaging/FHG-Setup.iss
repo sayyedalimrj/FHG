@@ -103,7 +103,10 @@ var
 begin
   Id := ActiveAccountId();
   if Id = '' then
-    raise Exception.Create('FHG account not yet configured');
+  begin
+    Result := '';
+    Exit;
+  end;
   Profile := ExpandConstant('{localappdata}\FHG\Accounts\' + Id +
     '\FirefoxProfile');
   Result := '-no-remote -profile "' + Profile +

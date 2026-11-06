@@ -120,11 +120,11 @@ public class VpnConfigTest {
         formats.put("shadowsocks",
             "ss://YWVzLTEyOC1nY206dGVzdHBhc3N3b3Jk@edge.example.org:8388#test");
         formats.put("vmess",
-            "vmess://"+java.util.Base64.getEncoder().encodeToString(
+            "vmess://"+java.util.Base64.getEncoder().encodeToString((
                 "{\"add\":\"edge.example.org\",\"port\":443,"+
                 "\"id\":\"123e4567-e89b-12d3-a456-426614174000\","+
                 "\"net\":\"ws\",\"path\":\"/v\","+
-                "\"host\":\"cdn.example.org\",\"tls\":\"tls\"}"
+                "\"host\":\"cdn.example.org\",\"tls\":\"tls\"}")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         formats.put("clash-yaml",String.join("\n",
             "proxies:","  - name: Frankfurt","    type: vless",

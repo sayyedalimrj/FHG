@@ -112,6 +112,7 @@ public final class EmbeddedVpnService extends VpnService
             .setContentText(current.equals("CONNECTED") ? "Protected tunnel verified" :
                 current.equals("STARTING") ? "Starting VPN tunnel" :
                 current.equals("CHECKING") ? "Verifying proxy connectivity" :
+                current.equals("RECONNECTING") ? "Network lost — retrying securely" :
                 "VPN disconnected / not ready")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setOngoing(true).setContentIntent(open).build();
@@ -182,46 +183,76 @@ public final class EmbeddedVpnService extends VpnService
     }
 
     private void verifyConnectivity() {
-        // An established TUN by itself is not evidence of a usable proxy.
-        // The HTTPS probe goes through normal Android routing, never protect().
-        int attempts = 0;
+        // The VPN app process may use a PHYSICAL default network. Opening
+        // a normal URLConnection here would give a false-positive result even
+        // when sing-box did not route any traffic. Network.openConnection()
+        // explicitly binds both TCP and DNS to our OWN VPN network.
         final String[] probes = {
             "https://cp.cloudflare.com/generate_204",
             "https://www.gstatic.com/generate_204"
         };
-        while (!stopping && attempts++ < 8) {
-            try { Thread.sleep(1500); }
-            catch (InterruptedException e) { return; }
-            if (!TUN_UP.get()) return;
-            for (String target : probes) {
+        int initialFailures = 0;
+        int failures = 0;
+        boolean everConnected = false;
+        while (!stopping && TUN_UP.get()) {
+            boolean ok = false;
+            Network vpn = NetworkGate.ownVpnNetwork(this);
+            if (vpn != null) for (String target : probes) {
                 if (stopping || !TUN_UP.get()) return;
                 HttpURLConnection connection = null;
                 try {
-                    connection = (HttpURLConnection)new URL(target).openConnection();
+                    connection = (HttpURLConnection)
+                        vpn.openConnection(new URL(target));
                     connection.setConnectTimeout(4500);
                     connection.setReadTimeout(4500);
                     connection.setUseCaches(false);
                     connection.setInstanceFollowRedirects(false);
-                    int response = connection.getResponseCode();
-                    if (response == 204 && !stopping && TUN_UP.get()) {
-                        VERIFIED.set(true);
-                        status("CONNECTED", "");
-                        return;
+                    if (connection.getResponseCode() == 204) {
+                        ok = true;
+                        break;
                     }
                 } catch (Exception ignored) {
-                    // Neither exception text nor endpoint IP should appear
-                    // in user diagnostics.
+                    // Do not log endpoints, configuration tokens or exception
+                    // messages from a user-provided proxy.
                 } finally {
                     if (connection != null) connection.disconnect();
                 }
             }
-            status("CHECKING", "PROXY_NOT_REACHABLE");
-        }
-        if (!stopping) {
-            VERIFIED.set(false);
-            status("FAILED", "PROXY_NOT_REACHABLE");
-            stopTunnel();
-            stopSelf();
+            if (stopping || !TUN_UP.get()) return;
+            if (ok) {
+                failures = 0;
+                initialFailures = 0;
+                everConnected = true;
+                VERIFIED.set(true);
+                status("CONNECTED", "");
+            } else {
+                failures++;
+                initialFailures++;
+                if (!everConnected || failures >= 2) {
+                    VERIFIED.set(false);
+                    status(everConnected ? "RECONNECTING" : "CHECKING",
+                        "PROXY_NOT_REACHABLE");
+                }
+                // Keep the TUN installed when transport temporarily fails:
+                // OS Lockdown continues blocking direct traffic while libbox
+                // retries. Ask the engine to refresh network selection.
+                if (failures >= 2 && commandServer != null) {
+                    try { commandServer.resetNetwork(); }
+                    catch (Exception ignored) {}
+                }
+                if (!everConnected && initialFailures >= 8) {
+                    status("FAILED", "PROXY_NOT_REACHABLE");
+                    stopTunnel();
+                    stopSelf();
+                    return;
+                }
+            }
+            try {
+                Thread.sleep(ok ? 20_000 : 4_000);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 

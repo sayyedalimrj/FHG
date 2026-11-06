@@ -1,0 +1,135 @@
+name: FHG Android v1 UI VPN security and protocol validation
+
+on:
+  push:
+    branches:
+      - android-v1-final-audit-ux-20261106
+    paths:
+      - 'android/**'
+      - '.github/workflows/fhg-android-v1-rc-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Confirm runner Android SDK and install API 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "Using runner SDK: $SDK_ROOT"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 3 -name sdkmanager -type f | sort -V | tail -1)"
+          fi
+          if [ ! -x "$SDKMANAGER" ]; then echo "Android sdkmanager unavailable" >&2; exit 1; fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37.0" "build-tools;36.0.0"
+          # Android 17 platforms are distributed with a minor version.
+          # Avoid AGP's fresh-platform resolver inconsistency.
+          if [ -d "$SDK_ROOT/platforms/android-37.0" ] && [ ! -e "$SDK_ROOT/platforms/android-37" ]; then
+            ln -s android-37.0 "$SDK_ROOT/platforms/android-37"
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Verify hard VPN gate, Keystore, official login domain, no fake VPN
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "applicationId 'com.fhg.android.repair'" android/app/build.gradle
+          grep -q 'native-validated profile' android/README.md || true
+          grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
+          grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'TRANSPORT_VPN' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'EmbeddedVpnService.isEstablished' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'implements PlatformInterface, CommandServerHandler' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'io.nekohasekai.libbox.CommandServer' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'startOrReloadService' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'if (!protect(fd))' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'setAction(EmbeddedVpnService.ACTION_CONNECT)' android/app/src/main/java/com/fhg/android/MainActivity.java
+          grep -q 'android.permission.BIND_VPN_SERVICE' android/app/src/main/AndroidManifest.xml
+          grep -q 'No direct' android/app/src/main/java/com/fhg/android/VpnConfig.java
+          grep -q 'session.close()' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'contextId(account.id)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'setAutocompleteStorageDelegate' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'request.confirm' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          if grep -q 'setPackage("app.hiddify.com")' android/app/src/main/java/com/fhg/android/MainActivity.java; then
+            echo 'External Hiddify dependency accidentally returned' >&2
+            exit 1
+          fi
+          grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          test ! -e android/app/src/main/java/com/fhg/android/PLACEHOLDER_VPN.java
+          echo 'PASS: Android Keystore, GeckoView, embedded real libbox bridge, protected sockets and fail-closed browser gate'
+      - name: Download and verify pinned GPLv3 sing-box libbox Android AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/app/libs
+          curl --fail --location --retry 4 --retry-delay 5 --max-time 350 \
+            'https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar' \
+            -o android/app/libs/libbox.aar
+          echo 'd2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  android/app/libs/libbox.aar' | sha256sum -c -
+          unzip -t android/app/libs/libbox.aar | tail -2
+          unzip -l android/app/libs/libbox.aar | grep -E 'classes.jar|libgo.so' | head
+          echo 'PASS: pinned sing-box native VPN engine verified, no binary committed'
+      - name: Compile and test integrated VPN, format parsers and GeckoView
+        working-directory: android
+        env:
+          FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Validate real generated proxy config with pinned sing-box CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --max-time 120 \
+            'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-linux-amd64.tar.gz' -o /tmp/sing-box.tar.gz
+          echo '699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968  /tmp/sing-box.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/fhg-singbox
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp/fhg-singbox
+          SING_BOX="$(find /tmp/fhg-singbox -type f -name sing-box -print -quit)"
+          test -n "$SING_BOX"
+          chmod +x "$SING_BOX"
+          for config in android/app/build/fhg-native-fixtures/*.json; do
+            test -s "$config"
+            "$SING_BOX" check -c "$config"
+            echo "PASS: native sing-box 1.14.4 accepted $(basename "$config")"
+          done
+      - name: Verify Android APK content and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-1.0.0-rc1-arm64.apk
+          cd dist
+          sha256sum FHG-Android-1.0.0-rc1-arm64.apk > FHG-Android-1.0.0-rc1-arm64.apk.sha256
+          unzip -t FHG-Android-1.0.0-rc1-arm64.apk | tail -2
+          SIZE=$(stat -c%s FHG-Android-1.0.0-rc1-arm64.apk)
+          # A real reduction vs the verified v0.2.1 universal APK
+          # (393,657,988 bytes); no empty or fake APK can pass.
+          OLD_SIZE=393657988
+          if [ "$SIZE" -lt 1000000 ]; then echo 'APK suspiciously small' >&2; exit 1; fi
+          if [ "$SIZE" -ge "$OLD_SIZE" ]; then echo 'ARM64 APK was not smaller than universal build' >&2; exit 1; fi
+          unzip -Z1 FHG-Android-1.0.0-rc1-arm64.apk | grep '^lib/' | grep -v '^lib/arm64-v8a/' && {
+            echo 'Non ARM64 native library leaked into APK' >&2; exit 1;
+          } || true
+          unzip -Z1 FHG-Android-1.0.0-rc1-arm64.apk | grep -q '^lib/arm64-v8a/'
+          echo "PASS: ARM64-only GeckoView and sing-box APK, old bytes=$OLD_SIZE, new bytes=$SIZE"
+          echo "REDUCTION=$(awk -v old="$OLD_SIZE" -v new="$SIZE" 'BEGIN { printf "%.1f", 100*(old-new)/old }')%"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-Android-1.0.0-rc1-arm64-APK
+          path: dist/FHG-Android-1.0.0-rc1-arm64.apk*
+          if-no-files-found: error

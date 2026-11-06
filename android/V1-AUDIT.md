@@ -1,8 +1,8 @@
-# FHG Secure Android 1.0 RC1 — architecture, security, UI and release audit
+# FHG Secure Android 1.0 RC2 — architecture, security, UI and release audit
 
 **Scope:** native Android/GeckoView browser, AES-GCM Android Keystore vault, first-run account file, Hiddify-style proxy subscriptions, single-app sing-box native VPN, privacy controls and user interface.
 
-**Status:** Release candidate. Automated compilation, Java tests, actual sing-box CLI configuration checks and Android APK integrity checks are CI gates. No physical-Android TUN packet/IPv6/DNS leak tests are claimed or invented.
+**Status:** Release candidate, revision 2. Automated compilation, Java tests, actual sing-box CLI configuration checks and Android APK integrity checks are CI gates. No physical-Android TUN packet/IPv6/DNS leak tests are claimed or invented.
 
 ## Sources consulted (official/primary)
 

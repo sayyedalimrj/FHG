@@ -7,11 +7,11 @@ android {
     compileSdk 37
 
     defaultConfig {
-        applicationId 'com.fhg.android.secure.rc5'
+        applicationId 'com.fhg.android.secure.rc6'
         minSdk 26
         targetSdk 35
-        versionCode 105
-        versionName '1.0.0-rc.5'
+        versionCode 106
+        versionName '1.0.0-rc.6'
 
         // One architecture only: Android phones with 64-bit ARM CPUs.
         // Strips x86, x86_64 and 32-bit ARM native engines (libbox and

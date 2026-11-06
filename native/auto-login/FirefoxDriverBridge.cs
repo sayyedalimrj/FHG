@@ -145,9 +145,42 @@ internal sealed class FirefoxDriverBridge : IDisposable
 
     public Uri? CurrentUri()
     {
-        var value = Request(HttpMethod.Get, PathFor("url"));
-        return value.ValueKind == JsonValueKind.String &&
-               Uri.TryCreate(value.GetString(), UriKind.Absolute, out var uri) ? uri : null;
+        static Uri? Decode(JsonElement value) =>
+            value.ValueKind == JsonValueKind.String &&
+            Uri.TryCreate(value.GetString(), UriKind.Absolute, out var uri) ? uri : null;
+        Uri? current = Decode(Request(HttpMethod.Get, PathFor("url")));
+        if (current is null || (current.Scheme != "about" &&
+                                current.Scheme != "data" &&
+                                current.Scheme != "moz-extension"))
+            return current;
+
+        // Mozilla opens its signed add-on import page in a new tab. W3C
+        // WebDriver remains bound to the old tab until we switch handles.
+        // Only switch to a trusted internal moz-extension import page, never
+        // to another website or third-party login origin.
+        JsonElement handles = Request(HttpMethod.Get, PathFor("window/handles"));
+        if (handles.ValueKind != JsonValueKind.Array || handles.GetArrayLength() < 2)
+            return current;
+        JsonElement previous = Request(HttpMethod.Get, PathFor("window"));
+        string? previousId = previous.ValueKind == JsonValueKind.String
+            ? previous.GetString() : null;
+        foreach (var entry in handles.EnumerateArray().Reverse())
+        {
+            string? handle = entry.GetString();
+            if (string.IsNullOrWhiteSpace(handle) || handle == previousId) continue;
+            try
+            {
+                Request(HttpMethod.Post, PathFor("window"), new { handle });
+                Uri? trial = Decode(Request(HttpMethod.Get, PathFor("url")));
+                if (trial?.Scheme == "moz-extension" &&
+                    trial.AbsolutePath == "/view/import.html")
+                    return trial;
+            }
+            catch (InvalidOperationException) { }
+        }
+        if (previousId != null)
+            Request(HttpMethod.Post, PathFor("window"), new { handle = previousId });
+        return current;
     }
 
     public bool IsPresent(string css)

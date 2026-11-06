@@ -1,7 +1,7 @@
 ; FHG Windows x64 installer — per-user installation, explicit directory picker.
 ; Build using ISCC.exe on a Windows GitHub Actions runner after stage is ready.
 ; Never copy sources, build scripts, .py or setup input/credentials into app dir.
-#define FhgVersion "0.6.4"
+#define FhgVersion "1.0.0"
 [Setup]
 AppId={{5BD4AA38-6319-4C59-B0D8-4706B994208F}
 AppName=FHG Browser
@@ -32,7 +32,7 @@ LZMAUseSeparateProcess=yes
 LZMANumBlockThreads=1
 OutputDir=installer-output
 OutputBaseFilename=FHG-Setup-Windows-x64-{#FhgVersion}
-SetupIconFile=native\original-ui\Assets\FHG.ico
+SetupIconFile=native\original-ui\Assets\FHGFirefox.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -57,14 +57,53 @@ Source: "stage\WebDriver\geckodriver.exe"; DestDir: "{app}\WebDriver"; Flags: ig
 Source: "stage\Firefox\*"; DestDir: "{app}\Firefox"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\Hiddify\*"; DestDir: "{app}\Hiddify"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs
+Source: "stage\Assets\*.ico"; DestDir: "{app}\Assets"; Flags: ignoreversion
 
 [Icons]
-Name: "{userdesktop}\FHG Firefox"; Filename: "{app}\FHG.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Firefox\firefox.exe"
-Name: "{userdesktop}\FHG Proxy"; Filename: "{app}\FHG.exe"; Parameters: "--proxy-only"; WorkingDir: "{app}"; IconFilename: "{app}\Hiddify\FHGProxy.exe"
-Name: "{userdesktop}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; WorkingDir: "{app}"; IconFilename: "{app}\FHGAccountManager.exe"
-Name: "{userprograms}\FHG Firefox"; Filename: "{app}\FHG.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Firefox\firefox.exe"
-Name: "{userprograms}\FHG Proxy"; Filename: "{app}\FHG.exe"; Parameters: "--proxy-only"; WorkingDir: "{app}"; IconFilename: "{app}\Hiddify\FHGProxy.exe"
-Name: "{userprograms}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; WorkingDir: "{app}"
+; For an existing account, Firefox shortcut MUST target the bundled
+; firefox.exe directly and retain the profile of that currently active ID.
+; New installations have no account yet: Workspace creates this exact
+; shortcut immediately after the first import or a selected-account change.
+Name: "{userdesktop}\FHG Firefox"; Filename: "{app}\Firefox\firefox.exe"; Parameters: "{code:FirefoxProfileArgs}"; WorkingDir: "{app}\Firefox"; IconFilename: "{app}\Assets\FHGFirefox.ico"; Check: HasConfiguredAccount
+Name: "{userdesktop}\FHG Proxy"; Filename: "{app}\FHG.exe"; Parameters: "--proxy-only"; WorkingDir: "{app}"; IconFilename: "{app}\Assets\FHGProxy.ico"
+Name: "{userdesktop}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Assets\FHGAccounts.ico"
+Name: "{userprograms}\FHG Firefox"; Filename: "{app}\Firefox\firefox.exe"; Parameters: "{code:FirefoxProfileArgs}"; WorkingDir: "{app}\Firefox"; IconFilename: "{app}\Assets\FHGFirefox.ico"; Check: HasConfiguredAccount
+Name: "{userprograms}\FHG Proxy"; Filename: "{app}\FHG.exe"; Parameters: "--proxy-only"; WorkingDir: "{app}"; IconFilename: "{app}\Assets\FHGProxy.ico"
+Name: "{userprograms}\FHG Accounts"; Filename: "{app}\FHGAccountManager.exe"; WorkingDir: "{app}"; IconFilename: "{app}\Assets\FHGAccounts.ico"
 
 [Run]
 Filename: "{app}\FHGAccountManager.exe"; Description: "Open FHG Accounts and complete your initial setup"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function ActiveAccountId(): String;
+var
+  Raw: String;
+  I: Integer;
+begin
+  Result := '';
+  if not LoadStringFromFile(
+      ExpandConstant('{localappdata}\FHG\Accounts\active-id.txt'), Raw) then Exit;
+  Raw := Trim(Raw);
+  if Length(Raw) <> 32 then Exit;
+  for I := 1 to Length(Raw) do
+    if Pos(Raw[I], '0123456789abcdef') = 0 then Exit;
+  Result := Raw;
+end;
+
+function HasConfiguredAccount(): Boolean;
+begin
+  Result := ActiveAccountId() <> '';
+end;
+
+function FirefoxProfileArgs(Param: String): String;
+var
+  Id, Profile: String;
+begin
+  Id := ActiveAccountId();
+  if Id = '' then
+    raise Exception.Create('FHG account not yet configured');
+  Profile := ExpandConstant('{localappdata}\FHG\Accounts\' + Id +
+    '\FirefoxProfile');
+  Result := '-no-remote -profile "' + Profile +
+    '" https://chatgpt.com/login';
+end;

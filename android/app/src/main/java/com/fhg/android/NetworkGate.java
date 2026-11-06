@@ -16,6 +16,11 @@ final class NetworkGate {
 
     static Network activeFhgVpnNetwork(Context context) {
         if (!EmbeddedVpnService.isEstablished()) return null;
+        return ownVpnNetwork(context);
+    }
+
+    // Available during the initial connectivity probe, before VERIFIED=true.
+    static Network ownVpnNetwork(Context context) {
         ConnectivityManager cm = (ConnectivityManager)
                 context.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return null;
@@ -29,7 +34,7 @@ final class NetworkGate {
                 // Only one Android VPN is permitted for a user profile and
                 // our own libbox verifies the TUN. Owner UID can further
                 // discriminate another VPN on Android 10+.
-                if (android.os.Build.VERSION.SDK_INT >= 29 &&
+                if (android.os.Build.VERSION.SDK_INT >= 30 &&
                     caps.getOwnerUid() != android.os.Process.myUid())
                     continue;
                 return n;

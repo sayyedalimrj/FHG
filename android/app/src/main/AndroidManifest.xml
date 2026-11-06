@@ -10,8 +10,8 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="FHG Secure RC5"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:label="FHG Secure RC6"
+        android:theme="@style/FhgSecureTheme"
         android:icon="@drawable/fhg_icon"
         android:supportsRtl="true">
         <!-- Android VPN services with VpnService.prepare user approval qualify

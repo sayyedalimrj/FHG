@@ -502,7 +502,7 @@ internal static class Program
                 Log("FHG auto-login helper did not start.");
                 return false;
             }
-            if (!login.WaitForExit(155000))
+            if (!login.WaitForExit(420000))
             {
                 try { login.Kill(entireProcessTree: true); }
                 catch { }

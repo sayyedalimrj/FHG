@@ -111,6 +111,37 @@ internal static class ProxyAutomation
         finally { foreach (var process in matches) process.Dispose(); }
     }
 
+    public static bool BootstrapConsent()
+    {
+        string path = Path.Combine(StateRoot, "bootstrap-choice.txt");
+        try
+        {
+            if (File.Exists(path)) {
+                string choice = File.ReadAllText(path).Trim();
+                if (choice == "ALLOW") return true;
+                if (choice == "DECLINE") return false;
+            }
+        }
+        catch (IOException) { /* Prompt if an earlier decision is unreadable. */ }
+
+        // Permission is requested ONCE, never on every FHG launch.
+        // Only the subscription downloader may use the existing 12334 route.
+        // Firefox and FHG proxy traffic remain pinned to FHG 12345.
+        bool allow = System.Windows.Forms.MessageBox.Show(
+            "The regular Hiddify proxy is available at 127.0.0.1:12334.\\n\\n" +
+            "May FHG use that local route ONLY to download your proxy subscriptions?\\n" +
+            "The decision will be remembered; this will not change Firefox's proxy.",
+            "One-time subscription bootstrap permission",
+            System.Windows.Forms.MessageBoxButtons.YesNo,
+            System.Windows.Forms.MessageBoxIcon.Information,
+            System.Windows.Forms.MessageBoxDefaultButton.Button2)
+            == System.Windows.Forms.DialogResult.Yes;
+        Directory.CreateDirectory(StateRoot);
+        try { File.WriteAllText(path, allow ? "ALLOW" : "DECLINE"); }
+        catch (IOException) { /* Never grant consent implicitly. */ }
+        return allow;
+    }
+
     public static void ShowProxyWindow(string proxyExe)
     {
         var matches = OwnedProxyProcesses(proxyExe);

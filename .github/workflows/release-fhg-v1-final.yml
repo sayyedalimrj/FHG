@@ -68,6 +68,7 @@ jobs:
               !$iconScript.Contains('FHGAccounts.ico') -or
               !$shortcuts.Contains('Path.Combine(appRoot, "Firefox", "firefox.exe")') -or
               !$shortcuts.Contains('FirefoxArguments(selectedAccountId!)') -or
+              !$shortcuts.Contains('old bundled FHG installation') -or
               !$shortcuts.Contains('AccountVault.AccountFirefoxDir(id)') -or
               !$managerProject.Contains('FHGAccounts.ico') -or
               !$installer.Contains('Filename: "{app}\Firefox\firefox.exe"') -or

@@ -67,9 +67,11 @@ internal static class ProxyAutomation
     public static Process[] OwnedProxyProcesses(string proxyExe)
     {
         string expected = Path.GetFullPath(proxyExe);
+        int ownSession = Process.GetCurrentProcess().SessionId;
         return Process.GetProcessesByName("FHGProxy").Where(p => {
             try {
-                return string.Equals(Path.GetFullPath(p.MainModule?.FileName ?? ""),
+                return p.SessionId == ownSession &&
+                    string.Equals(Path.GetFullPath(p.MainModule?.FileName ?? ""),
                     expected, StringComparison.OrdinalIgnoreCase);
             }
             catch { return false; }

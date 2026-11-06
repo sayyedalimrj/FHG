@@ -126,7 +126,7 @@ internal sealed class AccountsWindow : Form
         };
         root.Controls.Add(toolbar, 0, 1);
         toolbar.Controls.Add(MakeButton("+  Add account", AddAccount, true, 156));
-        toolbar.Controls.Add(MakeButton("Open selected", () => ActivateAccount(Selected()), false, 151));
+        toolbar.Controls.Add(MakeButton("Auto login & open", () => ActivateAccount(Selected()), true, 169));
         toolbar.Controls.Add(MakeButton("Sync Authenticator", () => SyncOriginalAuthenticator(Selected()), true, 174));
         toolbar.Controls.Add(MakeButton("Edit account", () => EditAccount(Selected()), false, 132));
         toolbar.Controls.Add(MakeButton("Delete account", () => DeleteAccount(Selected()), false, 142));
@@ -325,7 +325,7 @@ internal sealed class AccountsWindow : Form
         var copy = MakeButton("Copy 2FA", () => CopyCode(account), false, 132);
         copy.Left = 335; copy.Top = 144; copy.Height = 36;
         card.Controls.Add(copy);
-        var open = MakeButton(active ? "Open Firefox" : "Activate", () => ActivateAccount(account), true, 132);
+        var open = MakeButton(active ? "Auto login" : "Activate + login", () => ActivateAccount(account), true, 145);
         open.Left = 480; open.Top = 144; open.Height = 36;
         card.Controls.Add(open);
         var edit = MakeButton("Edit account", () => EditAccount(account), false, 142);
@@ -556,7 +556,7 @@ internal sealed class AccountsWindow : Form
             }
             if (Process.Start(info) is null)
                 throw new IOException("Could not start the FHG launcher");
-            status.Text = "Connecting FHG for " + account.Label + " and opening ChatGPT when SOCKS5 HTTPS is healthy.";
+            status.Text = "Starting FHG for " + account.Label + ". After proxy check, FHG will try official ChatGPT email, password and 2FA automatically.";
         }
         catch
         {

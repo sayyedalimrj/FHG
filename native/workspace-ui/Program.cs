@@ -175,9 +175,9 @@ internal sealed class WorkspaceWindow : Form
             });
         }
         subtitle.Text=$"{accounts.Length} encrypted account(s)   •   Separate Firefox profiles   •   SOCKS5 127.0.0.1:12345";
-        actions.Enabled=accounts.Length>0;
-        // New accounts can always be added, including when the vault is empty.
-        actions.Controls.OfType<Button>().First(b=>b.Text=="+ Add account").Enabled=true;
+        // Keep Add account accessible even when the vault is empty.
+        foreach(var button in actions.Controls.OfType<Button>())
+            button.Enabled=accounts.Length>0 || button.Text=="+ Add account";
         ResizeCards();
         cards.ResumeLayout();
         UpdateCodes();

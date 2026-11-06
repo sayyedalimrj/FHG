@@ -284,6 +284,53 @@ internal sealed class FirefoxDriverBridge : IDisposable
         Request(HttpMethod.Post, PathFor("element/" + safe + "/value"), new { text = value });
     }
 
+    // Focus the REAL on-page text control and send ordinary WebDriver key
+    // events, without setting DOM values from JavaScript or submitting any
+    // form. Never overwrite partially typed human input.
+    public void TypeIntoField(string id, string value)
+    {
+        if (string.IsNullOrWhiteSpace(id) || string.IsNullOrEmpty(value))
+            throw new ArgumentException("Field ID and input value are required.");
+        string? current = ElementValue(id);
+        if (!string.IsNullOrEmpty(current))
+        {
+            if (string.Equals(current, value, StringComparison.Ordinal))
+                return; // a user or password manager already entered it
+            throw new InvalidOperationException("FIELD_ALREADY_EDITED_BY_USER");
+        }
+        Click(id); // focus field; this does NOT click Continue
+        string safeId = Uri.EscapeDataString(id);
+        foreach (var rune in value.EnumerateRunes())
+        {
+            // W3C Send Keys produces browser key/input events that allow
+            // the site's own validation to run. No random delays or stealth.
+            Request(HttpMethod.Post, PathFor("element/" + safeId + "/value"),
+                new { text = rune.ToString() });
+            Thread.Sleep(45);
+        }
+    }
+
+    // Detect, do not solve, Cloudflare/provider challenges. Inspect only a
+    // boolean in-memory; page body, Ray IDs, cookies and URLs are not logged.
+    public bool IsSecurityChallenge()
+    {
+        var result = ExecuteScript("""
+            const title=(document.title||"").toLowerCase();
+            const body=(document.body?.innerText||"").slice(0,5000).toLowerCase();
+            return !!(
+                document.querySelector(
+                  "iframe[src*='challenges.cloudflare.com'], " +
+                  "input[name='cf-turnstile-response'], [id='cf-challenge-running'], " +
+                  "[data-sitekey]") ||
+                title.includes("just a moment") ||
+                body.includes("verifying you are human") ||
+                body.includes("checking your browser") ||
+                body.includes("verify you are human")
+            );
+            """);
+        return result.ValueKind == JsonValueKind.True;
+    }
+
     public string? ElementValue(string id)
     {
         var value = Request(HttpMethod.Get, PathFor("element/" +

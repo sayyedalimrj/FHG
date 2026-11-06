@@ -1,0 +1,211 @@
+name: FHG Secure Android v1.0.0 RC1 signed release build
+
+on:
+  push:
+    branches:
+      - android-v1-final-audit-ux-20261106
+    paths:
+      - 'android/**'
+      - '.github/workflows/fhg-android-v1-rc-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Confirm runner Android SDK and install API 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "Using runner SDK: $SDK_ROOT"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 3 -name sdkmanager -type f | sort -V | tail -1)"
+          fi
+          if [ ! -x "$SDKMANAGER" ]; then echo "Android sdkmanager unavailable" >&2; exit 1; fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37.0" "build-tools;36.0.0"
+          # Android 17 platforms are distributed with a minor version.
+          # Avoid AGP's fresh-platform resolver inconsistency.
+          if [ -d "$SDK_ROOT/platforms/android-37.0" ] && [ ! -e "$SDK_ROOT/platforms/android-37" ]; then
+            ln -s android-37.0 "$SDK_ROOT/platforms/android-37"
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Verify hard VPN gate, Keystore, official login domain, no fake VPN
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "applicationId 'com.fhg.android.secure'" android/app/build.gradle
+          grep -q 'native-validated profile' android/README.md || true
+          grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
+          grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'TRANSPORT_VPN' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'EmbeddedVpnService.isEstablished' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'implements PlatformInterface, CommandServerHandler' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'io.nekohasekai.libbox.CommandServer' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'startOrReloadService' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'if (!protect(fd))' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'setAction(EmbeddedVpnService.ACTION_CONNECT)' android/app/src/main/java/com/fhg/android/MainActivity.java
+          grep -q 'android.permission.BIND_VPN_SERVICE' android/app/src/main/AndroidManifest.xml
+          grep -q 'No direct' android/app/src/main/java/com/fhg/android/VpnConfig.java
+          grep -q 'closeChild(current)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'android:launchMode="singleTask"' android/app/src/main/AndroidManifest.xml
+          grep -q 'vpn.openConnection' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'caps.getOwnerUid()' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'contextId(account.id)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'setAutocompleteStorageDelegate' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'request.confirm' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          if grep -q 'setPackage("app.hiddify.com")' android/app/src/main/java/com/fhg/android/MainActivity.java; then
+            echo 'External Hiddify dependency accidentally returned' >&2
+            exit 1
+          fi
+          grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          test ! -e android/app/src/main/java/com/fhg/android/PLACEHOLDER_VPN.java
+          echo 'PASS: Android Keystore, GeckoView, embedded real libbox bridge, protected sockets and fail-closed browser gate'
+      - name: Download and verify pinned GPLv3 sing-box libbox Android AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p android/app/libs
+          curl --fail --location --retry 4 --retry-delay 5 --max-time 350 \
+            'https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar' \
+            -o android/app/libs/libbox.aar
+          echo 'd2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  android/app/libs/libbox.aar' | sha256sum -c -
+          unzip -t android/app/libs/libbox.aar | tail -2
+          unzip -l android/app/libs/libbox.aar | grep -E 'classes.jar|libgo.so' | head
+          echo 'PASS: pinned sing-box native VPN engine verified, no binary committed'
+      - name: Compile and test integrated VPN, format parsers and GeckoView
+        working-directory: android
+        env:
+          FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug || {
+            if test -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt; then
+              echo '===== Complete Android Lint report ====='
+              sed -n '1,260p' app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            fi
+            exit 1
+          }
+      - name: Validate real generated proxy config with pinned sing-box CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --max-time 120 \
+            'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-linux-amd64.tar.gz' -o /tmp/sing-box.tar.gz
+          echo '699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968  /tmp/sing-box.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/fhg-singbox
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp/fhg-singbox
+          SING_BOX="$(find /tmp/fhg-singbox -type f -name sing-box -print -quit)"
+          test -n "$SING_BOX"
+          chmod +x "$SING_BOX"
+          for config in android/app/build/fhg-native-fixtures/*.json; do
+            test -s "$config"
+            "$SING_BOX" check -c "$config"
+            echo "PASS: native sing-box 1.14.4 accepted $(basename "$config")"
+          done
+      - name: Sign non-debuggable ARM64 release APK and inspect manifest
+        shell: bash
+        env:
+          FHG_KEYSTORE_B64: ${{ secrets.FHG_APK_KEYSTORE_BASE64 }}
+          FHG_STORE_PASSWORD: ${{ secrets.FHG_APK_KEYSTORE_PASSWORD }}
+          FHG_KEY_ALIAS: ${{ secrets.FHG_APK_KEY_ALIAS }}
+          FHG_KEY_PASSWORD: ${{ secrets.FHG_APK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          BUILD_TOOLS="$SDK_ROOT/build-tools/36.0.0"
+          mkdir -p dist
+          RAW_APK=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$RAW_APK"
+          KEYSTORE=/tmp/fhg-v1-release.jks
+          if [ -n "$FHG_KEYSTORE_B64" ]; then
+            test -n "$FHG_STORE_PASSWORD"
+            test -n "$FHG_KEY_ALIAS"
+            test -n "$FHG_KEY_PASSWORD"
+            printf '%s' "$FHG_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+            chmod 600 "$KEYSTORE"
+            export KEY_ALIAS="$FHG_KEY_ALIAS"
+            export STOREPASS="$FHG_STORE_PASSWORD"
+            export KEYPASS="$FHG_KEY_PASSWORD"
+            echo 'Signing with stable repository secret keystore'
+          else
+            # This fallback is ONLY for the RC. It is private to the Actions
+            # runner; NOT an updatable production signature. Never publish it.
+            export KEY_ALIAS=fhg-secure-rc
+            export STOREPASS="$(openssl rand -hex 24)"
+            export KEYPASS="$STOREPASS"
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE" \
+              -storetype PKCS12 -alias "$KEY_ALIAS" -keyalg RSA \
+              -keysize 3072 -validity 3650 \
+              -dname "CN=FHG Secure Release Candidate,O=FHG" \
+              -storepass "$STOREPASS" -keypass "$KEYPASS" >/dev/null 2>&1
+            chmod 600 "$KEYSTORE"
+            echo 'WARNING: RC is signed with ephemeral key; future upgrade needs a stable signing secret'
+          fi
+          OUTPUT=dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$RAW_APK" /tmp/fhg-aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STOREPASS --key-pass env:KEYPASS \
+            --out "$OUTPUT" /tmp/fhg-aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUTPUT"
+          "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" > /tmp/fhg-badging.txt
+          grep -q "package: name='com.fhg.android.secure'" /tmp/fhg-badging.txt
+          grep -q "sdkVersion:'26'" /tmp/fhg-badging.txt
+          grep -q "versionName='1.0.0-rc.1'" /tmp/fhg-badging.txt
+          if grep -q 'application-debuggable' /tmp/fhg-badging.txt; then
+            echo 'SECURITY ERROR: Release APK is debuggable' >&2
+            exit 1
+          fi
+          unzip -t "$OUTPUT" | tail -2
+          BAD_LIBS="$(unzip -Z1 "$OUTPUT" | grep '^lib/' | grep -v '^lib/arm64-v8a/' || true)"
+          if [ -n "$BAD_LIBS" ]; then
+            echo 'Unexpected non ARM64 JNI libs' >&2
+            exit 1
+          fi
+          unzip -Z1 "$OUTPUT" | grep -q '^lib/arm64-v8a/'
+          BYTES="$(stat -c%s "$OUTPUT")"
+          test "$BYTES" -gt 1000000
+          test "$BYTES" -lt 393657988
+          sha256sum "$OUTPUT" > "$OUTPUT.sha256"
+          echo "PASS: non-debuggable, signed, verified ARM64 APK bytes=$BYTES"
+          rm -f "$KEYSTORE" /tmp/fhg-aligned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-Secure-Android-1.0.0-rc1-ARM64
+          path: |
+            dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk
+            dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk.sha256
+          if-no-files-found: error
+      - name: Publish immutable FHG Secure Android release candidate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="android-v1.0.0-rc.1"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing signed release" >&2
+            exit 1
+          fi
+          test -s dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk
+          gh release create "$TAG" \
+            dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk \
+            dist/FHG-Secure-Android-1.0.0-rc1-ARM64.apk.sha256 \
+            --target "$GITHUB_SHA" \
+            --title 'FHG Secure Android 1.0 RC1 — GeckoView + sing-box VPN' \
+            --notes-file android/V1-AUDIT.md \
+            --prerelease --latest=false

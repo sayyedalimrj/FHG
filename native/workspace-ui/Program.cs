@@ -120,6 +120,16 @@ internal sealed class WorkspaceWindow : Form
         refreshTimer.Start();
         FormClosed+=(_,_)=>ClearOwnedClipboard();
         LoadAccounts();
+        // First-ever launch after installation: directly open the local
+        // four-line file picker. Existing DPAPI accounts are never reimported.
+        // Shown (rather than constructor) ensures the dialog appears on top.
+        Shown += (_,_) => {
+            if (accounts.Length == 0)
+                BeginInvoke(new Action(() => {
+                    if (!IsDisposed && accounts.Length == 0)
+                        Safely(AddAccount);
+                }));
+        };
         _=CheckConnection();
     }
 

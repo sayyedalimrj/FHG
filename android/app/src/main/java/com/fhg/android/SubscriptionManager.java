@@ -80,7 +80,8 @@ final class SubscriptionManager {
                         !error.equals("NO_SUPPORTED_PROXY_NODES") &&
                         !error.equals("SUBSCRIPTION_UNKNOWN_FORMAT") &&
                         !error.startsWith("YAML_") &&
-                        !error.startsWith("JSON_"))
+                        !error.startsWith("JSON_") &&
+                        !error.equals("VPN_CONFIG_REJECTED"))
                         break;
                 }
             }

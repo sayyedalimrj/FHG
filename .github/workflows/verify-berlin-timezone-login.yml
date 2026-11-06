@@ -4,6 +4,8 @@ on:
     branches: [fix-berlin-timezone-first-run-login-20261106]
     paths:
       - 'native/auto-login/**'
+      - 'native/auto-login-tests/**'
+      - 'native/login-input-tests/**'
       - 'native/original-ui/**'
       - 'native/workspace-ui/**'
       - '.github/workflows/verify-berlin-timezone-login.yml'

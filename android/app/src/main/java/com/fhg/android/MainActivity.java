@@ -29,6 +29,8 @@ import java.util.List;
 
 public final class MainActivity extends Activity {
     private static final int PICK_CONFIG = 41;
+    private static final int PICK_VPN_CONFIG = 42;
+    private static final int VPN_PERMISSION = 43;
     private static final int NAVY = 0xff0b1528;
     private static final int SURFACE = 0xff12233d;
     private static final int TEAL = 0xff45dec6;
@@ -134,9 +136,12 @@ public final class MainActivity extends Activity {
         attach(vpn, text("●  وضعیت مسیر اینترنت", 17, TEAL, true), 33, 0);
         vpnStatus = text("در حال بررسی...", 14, Color.WHITE, false);
         attach(vpn, vpnStatus, 49, 2);
-        attach(vpn, text("ورود به مرورگر بدون VPN مسدود است؛ برای حفاظت کل گوشی Lockdown را در تنظیمات Android فعال کن.", 12, MUTED, false), 72, 3);
-        attach(vpn, button("بازکردن Hiddify", 0xff4844a9, this::openHiddify), 50, 12);
-        attach(vpn, button("تنظیمات Always-on VPN / Kill Switch", 0xff283f64, this::openVpnSettings), 50, 8);
+        attach(vpn, text("VPN داخلی FHG با موتور sing-box. مرورگر تنها با تونل همین برنامه باز می‌شود.", 12, MUTED, false), 72, 3);
+        attach(vpn, button("▶  اتصال VPN داخلی / AUTO", 0xff4844a9, this::startVpn), 50, 12);
+        attach(vpn, button("↓  دریافت اشتراک چهارخطی و انتخاب سرور", 0xff215e87, this::confirmBootstrap), 50, 8);
+        attach(vpn, button("📁  کانفیگ sing-box از فایل (آفلاین)", 0xff345f77, this::pickVpnConfig), 50, 8);
+        attach(vpn, button("■  قطع اتصال VPN داخلی", 0xff73415f, this::disconnectVpn), 50, 8);
+        attach(vpn, button("فعال‌سازی Always-on / Block without VPN برای FHG", 0xff283f64, this::openVpnSettings), 50, 8);
         attach(root, vpn, -2, 23);
 
         LinearLayout account = card();
@@ -165,7 +170,7 @@ public final class MainActivity extends Activity {
         attach(browser, text("●  مرورگر خصوصی / FIREFOX GECKO", 17, TEAL, true), 37, 0);
         attach(browser, text("ورود دستی به ChatGPT، تکمیل خودکار ایمیل و رمز از خزانه امن و جداسازی نشست هر حساب.", 13, MUTED, false), 70, 0);
         attach(browser, button("🌐  ورود به ChatGPT", 0xff157eaa, this::openBrowser), 56, 8);
-        hint = text("ابتدا VPN را در Hiddify وصل کن.", 12, MUTED, false);
+        hint = text("ابتدا VPN داخلی FHG را وصل کن.", 12, MUTED, false);
         attach(browser, hint, 45, 4);
         attach(root, browser, -2, 16);
 
@@ -202,8 +207,9 @@ public final class MainActivity extends Activity {
 
     private void refreshStatus() {
         boolean connected = NetworkGate.vpnActive(this);
-        vpnStatus.setText(connected ? "● VPN متصل است — مرورگر اجازه بازشدن دارد" :
-                "● اتصال VPN شناسایی نشد — مرورگر مسدود است");
+        vpnStatus.setText(connected ? "● تونل داخلی FHG فعال است — مرورگر مجاز" :
+                (EmbeddedVpnService.isStarting() ? "● تونل sing-box در حال اتصال است…" :
+                "● تونل داخلی FHG غیرفعال است — مرورگر مسدود"));
         vpnStatus.setTextColor(connected ? TEAL : 0xffffaa70);
         try {
             AccountStore.Account current = store.selected();
@@ -220,11 +226,18 @@ public final class MainActivity extends Activity {
                 otpDisplay.setText("2FA: " + Totp.now(current.totpSecret) +
                         "    (" + Totp.secondsRemaining() + "s)");
             }
-            hint.setText(connected ? "VPN فعال است؛ برای ورود روی دکمه بالا بزن." :
-                    "برای حفاظت، ابتدا Hiddify را وصل کن و Lockdown را فعال نگه دار.");
+            hint.setText(connected ? "تونل داخلی فعال است؛ وارد ChatGPT شو." :
+                    "برای حفاظت، تونل داخلی FHG را وصل کن و Lockdown را فعال نگه دار.");
         } catch (Exception e) {
             otpDisplay.setText("2FA: unavailable");
         }
+    }
+
+    private void pickVpnConfig() {
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(intent,PICK_VPN_CONFIG);
     }
 
     private void pickConfig() {
@@ -236,6 +249,15 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == VPN_PERMISSION) {
+            if (resultCode == RESULT_OK) launchVpnService();
+            else explain("VPN permission denied", "No tunnel was started and FHG browser remains blocked.");
+            return;
+        }
+        if (requestCode == PICK_VPN_CONFIG && resultCode == RESULT_OK && data != null) {
+            importVpnFile(data.getData());
+            return;
+        }
         if (requestCode != PICK_CONFIG || resultCode != RESULT_OK || data == null) return;
         try (InputStream stream = getContentResolver().openInputStream(data.getData())) {
             if (stream == null) throw new Exception("No file contents");
@@ -251,30 +273,142 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void openHiddify() {
+
+    private void explain(String title,String message) {
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
+            .setPositiveButton("OK",null).show();
+    }
+
+    private void confirmBootstrap() {
         try {
-            AccountStore.Account account = store.selected();
-            if (account == null) {
-                pickConfig();
-                return;
+            AccountStore.Account selected = store.selected();
+            if (selected == null) { pickConfig(); return; }
+            // First import may be before any VPN tunnel can exist. This is
+            // explicit user consent to a single HTTPS bootstrap request;
+            // no hidden direct reconnect or transparent HTTP fallback.
+            new AlertDialog.Builder(this).setTitle("Download proxy subscription")
+                .setMessage("This initial subscription download may use the current connection before FHG VPN starts. Your private HTTPS subscription URL is sent only to its configured server. Continue?")
+                .setPositiveButton("Download once", (d,w) -> downloadSubscription(selected))
+                .setNegativeButton("Cancel",null).show();
+        } catch (Exception e) { explain("Vault unavailable","Unable to read selected account."); }
+    }
+
+    private void downloadSubscription(AccountStore.Account selected) {
+        new Thread(() -> {
+            try {
+                String target = selected.subscription;
+                if(!target.startsWith("https://")) throw new IllegalArgumentException("HTTPS subscription required");
+                String text = null;
+                for(int redirect=0;redirect<=2;redirect++) {
+                    java.net.URL url = new java.net.URL(target);
+                    if(!"https".equalsIgnoreCase(url.getProtocol())) throw new SecurityException("HTTPS only");
+                    java.net.HttpURLConnection conn=(java.net.HttpURLConnection)url.openConnection();
+                    conn.setConnectTimeout(12000);
+                    conn.setReadTimeout(16000);
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setRequestProperty("User-Agent","FHG-Android/0.2");
+                    try {
+                        int status=conn.getResponseCode();
+                        if(status>=300 && status<400 && redirect<2) {
+                            String location=conn.getHeaderField("Location");
+                            java.net.URI resolved=new java.net.URI(target).resolve(location);
+                            if(!"https".equalsIgnoreCase(resolved.getScheme()))
+                                throw new SecurityException("Cross-scheme redirect refused");
+                            target=resolved.toString();
+                            continue;
+                        }
+                        if(status!=200)throw new IllegalStateException("Subscription HTTP status "+status);
+                        try(InputStream input=conn.getInputStream()) {
+                            java.io.ByteArrayOutputStream bounded=new java.io.ByteArrayOutputStream();
+                            byte[] buf=new byte[8192]; int n;
+                            while((n=input.read(buf))>=0) {
+                                if(bounded.size()+n>1000000) throw new Exception("Subscription is too large");
+                                bounded.write(buf,0,n);
+                            }
+                            text=bounded.toString("UTF-8");
+                        }
+                        break;
+                    } finally { conn.disconnect(); }
+                }
+                if(text==null)throw new Exception("HTTPS redirect limit");
+                String config=VpnConfig.parse(text);
+                store.saveVpnConfig(selected.id,config);
+                runOnUiThread(() -> explain("Subscription ready",
+                    "Embedded sing-box config encrypted successfully. Press Connect FHG VPN. Unsupported nodes were not given a direct bypass."));
+            } catch(Exception e) {
+                runOnUiThread(() -> explain("Import failed",
+                    "Subscription unsupported or unavailable. Import a local sing-box JSON configuration or a VLESS/Trojan/VMess/SS subscription. No direct VPN fallback was enabled."));
             }
-            // The user explicitly authorizes this share action.
-            Uri uri = Uri.parse("hiddify://import/" + account.subscription + "#FHG");
-            Intent importIntent = new Intent(Intent.ACTION_VIEW, uri);
-            importIntent.setPackage("app.hiddify.com");
-            startActivity(importIntent);
-        } catch (ActivityNotFoundException missing) {
-            new AlertDialog.Builder(this).setTitle("Install Hiddify")
-                    .setMessage("Install the official Hiddify Android VPN app, then return and import the subscription.")
-                    .setPositiveButton("Open Play Store", (d, w) -> {
-                        startActivity(new Intent(Intent.ACTION_VIEW,
-                                Uri.parse("https://play.google.com/store/apps/details?id=app.hiddify.com")));
-                    }).setNegativeButton("Cancel", null).show();
-        } catch (Exception error) {
-            new AlertDialog.Builder(this).setTitle("Hiddify unavailable")
-                    .setMessage("Could not open the official Hiddify import screen.")
-                    .setPositiveButton("OK", null).show();
+        },"fhg-bootstrap-subscription").start();
+    }
+
+    private void importVpnFile(Uri uri) {
+        new Thread(() -> {
+            try {
+                AccountStore.Account selected=store.selected();
+                if(selected==null)throw new Exception("No account");
+                byte[] bytes;
+                try(InputStream input=getContentResolver().openInputStream(uri)) {
+                    if(input==null)throw new Exception("Unreadable file");
+                    java.io.ByteArrayOutputStream buffer=new java.io.ByteArrayOutputStream();
+                    byte[] tmp=new byte[8192]; int n;
+                    while((n=input.read(tmp))>=0) {
+                        if(buffer.size()+n>1000000)throw new Exception("Config too large");
+                        buffer.write(tmp,0,n);
+                    }
+                    bytes=buffer.toByteArray();
+                }
+                String config=VpnConfig.parse(new String(bytes,java.nio.charset.StandardCharsets.UTF_8));
+                java.util.Arrays.fill(bytes,(byte)0);
+                store.saveVpnConfig(selected.id,config);
+                runOnUiThread(() -> explain("VPN configuration imported",
+                    "The configuration is saved encrypted and ready for the internal VPN."));
+            } catch(Exception e) {
+                runOnUiThread(() -> explain("VPN import failed",
+                    "Import a supported subscription or safe sing-box JSON config; existing account data is preserved."));
+            }
+        },"fhg-import-config").start();
+    }
+
+    private void startVpn() {
+        try {
+            AccountStore.Account selected=store.selected();
+            if(selected==null){pickConfig();return;}
+            store.loadVpnConfig(selected.id);
+        } catch(java.io.FileNotFoundException missing) {
+            new AlertDialog.Builder(this).setTitle("VPN configuration missing")
+                .setMessage("Download the subscription from the existing four-line account file or import a sing-box JSON config first.")
+                .setPositiveButton("Download subscription",(d,w)->confirmBootstrap())
+                .setNeutralButton("Import JSON",(d,w)->pickVpnConfig())
+                .setNegativeButton("Cancel",null).show();
+            return;
+        } catch(Exception e) {
+            explain("Encrypted VPN config unavailable","The saved configuration could not be decrypted. It has NOT been deleted.");
+            return;
         }
+        Intent consent=android.net.VpnService.prepare(this);
+        if(consent!=null)startActivityForResult(consent,VPN_PERMISSION);
+        else launchVpnService();
+    }
+
+    private void launchVpnService() {
+        Intent start=new Intent(this,EmbeddedVpnService.class);
+        start.setAction(EmbeddedVpnService.ACTION_CONNECT);
+        try {
+            if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(start);
+            else startService(start);
+            android.widget.Toast.makeText(this,"Starting internal VPN…",
+                android.widget.Toast.LENGTH_SHORT).show();
+        } catch(Exception e) {
+            explain("VPN service unavailable","The secure tunnel could not start. Browser remains blocked.");
+        }
+    }
+
+    private void disconnectVpn() {
+        Intent stop=new Intent(this,EmbeddedVpnService.class);
+        stop.setAction(EmbeddedVpnService.ACTION_DISCONNECT);
+        startService(stop);
+        handler.postDelayed(this::refreshStatus,500);
     }
 
     private void openVpnSettings() {
@@ -307,7 +441,7 @@ public final class MainActivity extends Activity {
             }
             if (!NetworkGate.vpnActive(this)) {
                 new AlertDialog.Builder(this).setTitle("VPN required")
-                    .setMessage("FHG blocks web browsing while no system VPN is detected. Connect Hiddify and enable Always-on VPN with Block connections without VPN in Android settings.")
+                    .setMessage("FHG blocks web browsing while no system VPN is detected. Connect the integrated FHG VPN and enable Always-on VPN with Block connections without VPN for FHG in Android settings.")
                     .setPositiveButton("VPN settings", (d,w) -> openVpnSettings())
                     .setNegativeButton("Cancel", null).show();
                 return;

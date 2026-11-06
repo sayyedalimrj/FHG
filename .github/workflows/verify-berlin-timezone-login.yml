@@ -103,6 +103,11 @@ jobs:
             & ./FHGLogin.exe --self-test-driver
             if ($LASTEXITCODE -ne 0) {throw "Firefox form and addon test failed: $LASTEXITCODE"}
           } finally {Pop-Location}
+      - name: Verify exact login input with plus and non-ASCII characters
+        shell: pwsh
+        run: |
+          dotnet run --project native/login-input-tests/FHG.InputTests.csproj -c Release -- (Resolve-Path stage).Path
+          if ($LASTEXITCODE -ne 0) { throw 'Login character regression failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: FHG-BERLIN-TIMEZONE-XPI-AND-BINARIES

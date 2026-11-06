@@ -38,6 +38,7 @@ android {
 dependencies {
     implementation 'org.mozilla.geckoview:geckoview:159.0.20261022150525'
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20250517'
     // GPLv3 libbox: pinned official release, downloaded and hash-checked by CI.
     implementation files('libs/libbox.aar')
 }

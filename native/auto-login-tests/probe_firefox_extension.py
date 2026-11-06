@@ -23,7 +23,8 @@ def call(method,path,data=None):
             return result.get("value",result)
     except urllib.error.HTTPError as exc:
         msg=json.loads(exc.read() or b"{}").get("value",{})
-        print("HTTP_STATUS",exc.code,"ERROR",msg.get("error","unknown"))
+        print("HTTP_STATUS",exc.code,"ERROR",msg.get("error","unknown"),
+              "DETAIL",str(msg.get("message",""))[:320])
         return {}
 try:
     for i in range(75):
@@ -32,7 +33,7 @@ try:
         except (OSError,ValueError): pass
         time.sleep(.2)
     else: raise RuntimeError("DRIVER_NOT_READY")
-    with tempfile.TemporaryDirectory(prefix="FHG-Gecko-Probe-") as profile:
+    with tempfile.TemporaryDirectory(prefix="FHG-Gecko-Probe-",ignore_cleanup_errors=True) as profile:
         v=call("POST","session",{"capabilities":{"alwaysMatch":{"browserName":"firefox","moz:firefoxOptions":{
            "binary":str(firefox),"args":["-no-remote","-profile",profile]}}}})
         session=v.get("sessionId")
@@ -44,8 +45,11 @@ try:
             "script":"return typeof ChromeUtils !== 'undefined' && typeof gBrowser !== 'undefined'",
             "args":[]})
         print("PRIVILEGED_OBJECTS",b)
+        pre=call("POST",f"session/{session}/execute/sync",{
+            "script":"return [typeof Services, typeof ChromeUtils, Services.prefs.getStringPref('extensions.webextensions.uuids','{}').length, Services.prefs.prefHasUserValue('extensions.webextensions.uuids')]", "args":[]})
+        print("PRECONDITIONS",pre)
         c=call("POST",f"session/{session}/execute/sync",{
-            "script":"const S=ChromeUtils.importESModule('resource://gre/modules/Services.sys.mjs').Services;const m=JSON.parse(S.prefs.getStringPref('extensions.webextensions.uuids','{}'));return !!m['authenticator@mymindstorm'];",
+            "script":"const S=Services;const m=JSON.parse(S.prefs.getStringPref('extensions.webextensions.uuids','{}'));return !!m['authenticator@mymindstorm'];",
             "args":[]})
         print("SIGNED_ADDON_UUID_EXISTS",c)
         if c is True:
@@ -57,6 +61,9 @@ try:
             time.sleep(1)
             e=call("POST",f"session/{session}/execute/sync",{"script":"return [location.protocol, typeof browser, !!(window.browser && browser.storage)]","args":[]})
             print("STORAGE_API_IN_EXTENSION_CONTEXT",e)
+        if session:
+            try: call("DELETE",f"session/{session}")
+            finally: session=None
 finally:
     if session:
         try: call("DELETE",f"session/{session}")

@@ -22,7 +22,7 @@ internal sealed class FirefoxDriverBridge : IDisposable
     private string? originalWindowHandle;
     private bool closed;
 
-    public FirefoxDriverBridge(string driverExecutable, string firefoxExecutable, string profile)
+    public FirefoxDriverBridge(string driverExecutable, string firefoxExecutable, string profile, bool headless = false)
     {
         var local = new TcpListener(IPAddress.Loopback, 0);
         local.Start();
@@ -84,7 +84,9 @@ internal sealed class FirefoxDriverBridge : IDisposable
                     ["unhandledPromptBehavior"] = "dismiss and notify",
                     ["moz:firefoxOptions"] = new {
                         binary = firefoxExecutable,
-                        args = new []{"-no-remote","-profile",profile},
+                        args = headless
+                            ? new []{"-headless","-no-remote","-profile",profile}
+                            : new []{"-no-remote","-profile",profile},
                         log = new { level = "fatal" }
                     }
                 }

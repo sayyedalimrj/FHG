@@ -44,10 +44,10 @@ internal static class Program
             using var browser = new FirefoxDriverBridge(geckodriver, firefox, profile);
             return Execute(browser, account);
         }
-        catch (IOException) { return 20; }
-        catch (OperationCanceledException) { return 20; }
-        catch (InvalidOperationException) { return 20; }
-        catch (Exception) { return 30; }
+        catch (IOException) { Console.WriteLine("FHG_LOGIN_STAGE:IO_FAILURE"); return 20; }
+        catch (OperationCanceledException) { Console.WriteLine("FHG_LOGIN_STAGE:CANCELED"); return 20; }
+        catch (InvalidOperationException) { Console.WriteLine("FHG_LOGIN_STAGE:DRIVER_FAILURE"); return 20; }
+        catch (Exception) { Console.WriteLine("FHG_LOGIN_STAGE:UNEXPECTED_FAILURE"); return 30; }
     }
 
     private static int SelfTestDriver()
@@ -123,8 +123,10 @@ internal static class Program
         var clock = Stopwatch.StartNew();
         var submitted = new System.Collections.Generic.HashSet<LoginStage>();
         var whenSubmitted = TimeSpan.Zero;
-        bool triedOfficialLogin = false;
-        browser.GoTo("https://chatgpt.com/");
+        // The user-specified, supported entrypoint is /login. Do NOT depend
+        // on changing homepage button markup or deep-link to /auth/login.
+        Console.WriteLine("FHG_LOGIN_STAGE:DIRECT_LOGIN_ENTRY");
+        browser.GoTo("https://chatgpt.com/login");
 
         while (clock.Elapsed < TotalLimit)
         {
@@ -133,45 +135,31 @@ internal static class Program
             try { uri = browser.CurrentUri(); }
             catch (InvalidOperationException) { continue; }
             var stage = TrustedLoginPage.Classify(uri);
-            if (stage == LoginStage.Invalid) return 20; // never follow credentials into foreign origins
-            if (HasChallenge(browser)) return 20; // stop for CAPTCHA / provider checks
+            if (stage == LoginStage.Invalid)
+            {
+                Console.WriteLine("FHG_LOGIN_STAGE:UNTRUSTED_OR_UNAVAILABLE_ORIGIN");
+                return 20; // never follow credentials into foreign origins
+            }
+            if (HasChallenge(browser))
+            {
+                Console.WriteLine("FHG_LOGIN_STAGE:PROVIDER_CHALLENGE");
+                return 20; // provider challenge remains user-driven
+            }
 
             if (stage == LoginStage.ChatGptHome)
             {
                 if (browser.IsAuthenticatedUi()) return 0;
-                var emailAtHome = browser.FindVisible(
-                    "form input[name='username'][type='email'], form input[type='email'][autocomplete='email']");
-                if (emailAtHome != null)
+                // /login can redirect to the homepage if authentication or
+                // an upstream access check already decided the destination.
+                // Never hunt for a homepage button: keep the direct /login
+                // entrypoint and let the launcher show it for manual login.
+                if (clock.Elapsed > TimeSpan.FromSeconds(14))
                 {
-                    if (!submitted.Add(LoginStage.Email)) { /* already tried */ }
-                    else if (!FillAndSubmit(browser, emailAtHome, account.Label, stage))
-                        return 20;
-                    else whenSubmitted = clock.Elapsed;
-                    continue;
+                    Console.WriteLine("FHG_LOGIN_STAGE:REDIRECTED_HOME_WITHOUT_SESSION");
+                    return 20;
                 }
-                // Use the login control rendered by the actual ChatGPT
-                // homepage. Do not deep-link to a server route that may
-                // expect an action/data content-type and render Route Error 400.
-                if (!triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(2))
-                {
-                    triedOfficialLogin = true;
-                    string? loginControl = browser.FindVisible(
-                        "a[href^='/auth/login'], a[href^='/login'], " +
-                        "a[href^='https://chatgpt.com/auth/login'], " +
-                        "button[data-testid='login-button'], a[data-testid='login-button']");
-                    if (loginControl != null)
-                    {
-                        if (TrustedLoginPage.Classify(browser.CurrentUri()) != LoginStage.ChatGptHome)
-                            return 20;
-                        browser.Click(loginControl);
-                        continue;
-                    }
-                }
-                if (triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(12) &&
-                    submitted.Count == 0)
-                    return 20; // keep normal Firefox available for manual login
             }
-            else if (stage == LoginStage.Email)
+                        else if (stage == LoginStage.Email)
             {
                 string? email = browser.FindVisible(
                     "form input[name='username'][type='email'], form input[type='email'][autocomplete='email'], form input[type='email']");
@@ -180,6 +168,13 @@ internal static class Program
                     submitted.Add(LoginStage.Email);
                     if (!FillAndSubmit(browser, email, account.Label, stage)) return 20;
                     whenSubmitted = clock.Elapsed;
+                    Console.WriteLine("FHG_LOGIN_STAGE:EMAIL_SUBMITTED");
+                }
+                else if (email == null && submitted.Count == 0 &&
+                         clock.Elapsed > TimeSpan.FromSeconds(30))
+                {
+                    Console.WriteLine("FHG_LOGIN_STAGE:LOGIN_FORM_NOT_RENDERED");
+                    return 20;
                 }
             }
             else if (stage == LoginStage.Password)
@@ -191,6 +186,7 @@ internal static class Program
                     submitted.Add(LoginStage.Password);
                     if (!FillAndSubmit(browser, password, account.Password, stage)) return 20;
                     whenSubmitted = clock.Elapsed;
+                    Console.WriteLine("FHG_LOGIN_STAGE:PASSWORD_SUBMITTED");
                 }
             }
             else if (stage == LoginStage.Totp)
@@ -209,13 +205,18 @@ internal static class Program
                     catch { return 20; }
                     if (!FillAndSubmit(browser, otp, code, stage)) return 20;
                     whenSubmitted = clock.Elapsed;
+                    Console.WriteLine("FHG_LOGIN_STAGE:TOTP_SUBMITTED");
                 }
             }
             else if (stage == LoginStage.UnknownOfficial)
             {
                 // SSO, provider challenge, account recovery, passkeys or UI
                 // changed: leave to the user. Never guess fields or click.
-                if (clock.Elapsed > TimeSpan.FromSeconds(7)) return 20;
+                if (clock.Elapsed > TimeSpan.FromSeconds(12))
+                {
+                    Console.WriteLine("FHG_LOGIN_STAGE:UNKNOWN_OFFICIAL_PAGE");
+                    return 20;
+                }
             }
 
             // Wrong password/OTP or a stalled form is not retried blindly:
@@ -228,6 +229,7 @@ internal static class Program
                     return 20;
             }
         }
+        Console.WriteLine("FHG_LOGIN_STAGE:TIME_LIMIT");
         return 20;
     }
 

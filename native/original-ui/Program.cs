@@ -158,14 +158,8 @@ internal static class Program
                 return 5;
             }
             Directory.CreateDirectory(ProfileDir);
-            if (AccountPaths.ActiveId is string activeAccountId &&
-                !SyncOriginalAuthenticator(activeAccountId))
-            {
-                Warn("The original Firefox Authenticator could not be safely synchronized.\n\n" +
-                     "Close FHG Firefox and try again. Other Firefox installations are unaffected. " +
-                     "No existing Authenticator accounts were erased.");
-                return 14;
-            }
+            // Original signed extension sync now runs inside Firefox via its
+            // own storage API; do not modify private databases before launch.
             InstallChatGptStartTile();
             // Attempt credential-based login in the same isolated profile
             // BEFORE regular Firefox starts. W3C WebDriver is closed when

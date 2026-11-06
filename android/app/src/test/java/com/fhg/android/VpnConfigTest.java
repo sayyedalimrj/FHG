@@ -29,7 +29,9 @@ public class VpnConfigTest {
         JSONArray outs=obj.getJSONArray("outbounds");
         assertEquals(3,outs.length());
         assertEquals("urltest",outs.getJSONObject(2).getString("type"));
-        assertEquals("fhg-proxy",obj.getJSONObject("route").getString("final"));
+        assertTrue(obj.getJSONObject("route").getString("final").startsWith("node-1"));
+        assertEquals("fhg-proxy",VpnConfig.selectedTag(
+            VpnConfig.withSelected(obj.toString(),"fhg-proxy")));
     }
 
     @Test public void selectingLocationChangesBothProxyRouteAndDnsDetour() throws Exception {

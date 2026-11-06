@@ -135,3 +135,12 @@ CI provides compilation, lint, unit tests, native configuration validation and
 APK signing/integrity checks. CI does not reproduce the actual rendered
 dashboard on a physical Samsung phone nor verify VPN behavior on that phone.
 RC6 installs alongside RC5 (separate package ID) to preserve its data.
+
+## RC6.1 (final visual polish candidate)
+
+Includes all RC6 dashboard changes plus compact, single-line TOTP digits
+and expiry countdown on narrow phone screens. The native VPN engine, scoped
+IPv6 bridge crash repair and fail-closed browser gate remain unchanged from
+RC5. This build has its own package ID to protect earlier ephemeral-signed
+test installs. Android CI passing is not the same as physical phone UI/VPN
+validation, which remains outstanding.

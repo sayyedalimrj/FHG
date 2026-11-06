@@ -48,12 +48,12 @@ public final class MainActivity extends Activity {
     private static final int PICK_ACCOUNT=41;
     private static final int PICK_PROXY_FILE=42;
     private static final int VPN_CONSENT=43;
-    private static final int BG=0xff0a1426;
-    private static final int SURFACE=0xff17263e;
-    private static final int ACCENT=0xff24c8b6;
-    private static final int INK=0xfff4f8ff;
-    private static final int MUTED=0xffa4b4cb;
-    private static final int WARNING=0xffffb16e;
+    private static final int BG=0xff0B1020;
+    private static final int SURFACE=0xff151E31;
+    private static final int ACCENT=0xff55E1C8;
+    private static final int INK=0xffF3F7FF;
+    private static final int MUTED=0xffA1B0C8;
+    private static final int WARNING=0xffFFC383;
 
     private AccountStore vault;
     private final Handler main=new Handler(Looper.getMainLooper());
@@ -61,6 +61,8 @@ public final class MainActivity extends Activity {
     private Spinner spinner;
     private TextView status, caption, accountLabel, profileLabel, otp, inlineError, serverLabel;
     private ProgressBar pending;
+    private TextView connectionPill;
+    private boolean lastPowerStyleConnected=false;
     private Button power, browser, advanced, recovery, serverPicker;
     private List<AccountStore.Account> accounts=new ArrayList<>();
     private boolean importing;
@@ -115,7 +117,7 @@ public final class MainActivity extends Activity {
         GradientDrawable d=new GradientDrawable();
         d.setColor(color);
         d.setCornerRadius(dp(radius));
-        if(color==SURFACE)d.setStroke(dp(1),0xff293e56);
+        if(color==SURFACE)d.setStroke(dp(1),0xff2B3D55);
         return d;
     }
     private TextView label(String value,int size,int color,boolean bold){
@@ -123,7 +125,7 @@ public final class MainActivity extends Activity {
         t.setText(value);
         t.setTextSize(size);
         t.setTextColor(color);
-        if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        if(bold)t.setTypeface(Typeface.create("sans-serif-medium",Typeface.BOLD));
         t.setGravity(Gravity.CENTER_VERTICAL);
         return t;
     }
@@ -136,98 +138,185 @@ public final class MainActivity extends Activity {
     private LinearLayout card(){
         LinearLayout c=new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(18),dp(17),dp(18),dp(19));
-        c.setBackground(shape(SURFACE,20));
+        c.setPadding(dp(19),dp(18),dp(19),dp(19));
+        c.setBackground(shape(SURFACE,24));
         return c;
     }
     private Button action(String value,int color,Runnable callback){
         Button b=new Button(this);
         b.setAllCaps(false);
         b.setText(value);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(15);
+        b.setTextColor(color==ACCENT?BG:INK);
+        b.setTextSize(14);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(12),0,dp(12),0);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
         b.setMinHeight(dp(48));
         b.setContentDescription(value);
         b.setBackground(new android.graphics.drawable.RippleDrawable(
             android.content.res.ColorStateList.valueOf(0x44ffffff),
-            shape(color,13),null));
+            shape(color,16),null));
         b.setOnClickListener(v->callback.run());
         return b;
+    }
+
+    private static final int RAISED=0xff1D2B43;
+    private static final int BORDER=0xff2B3D55;
+    private static final int SOFT_ACCENT=0xff123D3C;
+
+    private GradientDrawable rounded(int color,int radius,int stroke) {
+        GradientDrawable d=new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(radius));
+        if(stroke!=0)d.setStroke(dp(1),stroke);
+        return d;
+    }
+    private GradientDrawable gradient(int start,int end,int radius) {
+        GradientDrawable d=new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+            new int[]{start,end});
+        d.setCornerRadius(dp(radius));
+        d.setStroke(dp(1),BORDER);
+        return d;
+    }
+    private android.graphics.drawable.RippleDrawable touchBackground(int color,int radius) {
+        return new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x29ffffff),
+            rounded(color,radius,0),
+            rounded(0xffffffff,radius,0));
+    }
+    private TextView overline(String value) {
+        TextView t=label(value,12,MUTED,true);
+        t.setLetterSpacing(.015f);
+        return t;
+    }
+    private void sectionHeading(LinearLayout parent,String value,String meta) {
+        LinearLayout r=new LinearLayout(this);
+        r.setOrientation(LinearLayout.HORIZONTAL);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.addView(label(value,17,INK,true),new LinearLayout.LayoutParams(0,dp(35),1));
+        r.addView(label(meta,11,MUTED,false),new LinearLayout.LayoutParams(-2,dp(35)));
+        add(parent,r,35,0);
     }
     private void draw(){
         ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         scroll.setBackgroundColor(BG);
         root=new LinearLayout(this);
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18),dp(22),dp(18),dp(30));
-        // Target API 35 draws edge-to-edge. Keep all controls above the
-        // gesture/navigation area and away from notches.
+        root.setPadding(dp(20),dp(25),dp(20),dp(36));
         root.setOnApplyWindowInsetsListener((view,insets)->{
-            int top,bottom;
+            int top,bottom,left,right;
             if(android.os.Build.VERSION.SDK_INT>=30) {
                 android.graphics.Insets bars=insets.getInsets(
-                    android.view.WindowInsets.Type.systemBars());
-                top=bars.top; bottom=bars.bottom;
+                    android.view.WindowInsets.Type.systemBars() |
+                    android.view.WindowInsets.Type.displayCutout());
+                top=bars.top;bottom=bars.bottom;left=bars.left;right=bars.right;
             } else {
                 top=insets.getSystemWindowInsetTop();
                 bottom=insets.getSystemWindowInsetBottom();
+                left=insets.getSystemWindowInsetLeft();
+                right=insets.getSystemWindowInsetRight();
             }
-            view.setPadding(dp(18),dp(22)+top,dp(18),dp(30)+bottom);
+            view.setPadding(dp(20)+left,dp(25)+top,dp(20)+right,dp(36)+bottom);
             return insets;
         });
         scroll.addView(root);
         setContentView(scroll);
 
-        TextView brand=label("FHG  •  SECURE",26,INK,true);
-        brand.setTextDirection(View.TEXT_DIRECTION_LTR);
-        add(root,brand,40,0);
-        add(root,label("اینترنت مطمئن، مرورگر اختصاصی، بدون پنجره‌های اضافی",14,MUTED,false),-2,4);
-        add(root,label("① حساب   •   ② پروفایل   •   ③ اتصال   •   ④ مرورگر",12,ACCENT,false),-2,15);
+        LinearLayout header=new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView mark=label("F",25,0xff06211f,true);
+        mark.setGravity(Gravity.CENTER);
+        mark.setBackground(gradient(0xff7DF4DB,0xff3FC5B6,15));
+        mark.setContentDescription("FHG Secure");
+        header.addView(mark,new LinearLayout.LayoutParams(dp(52),dp(52)));
+        LinearLayout brand=new LinearLayout(this);
+        brand.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams brandParams=new LinearLayout.LayoutParams(0,-2,1);
+        brandParams.setMarginStart(dp(12));
+        header.addView(brand,brandParams);
+        TextView name=label("FHG Secure",22,INK,true);
+        name.setTextDirection(View.TEXT_DIRECTION_LTR);
+        add(brand,name,-2,0);
+        TextView tagline=label("PRIVATE WORKSPACE  /  VPN",10,MUTED,false);
+        tagline.setTextDirection(View.TEXT_DIRECTION_LTR);
+        tagline.setLetterSpacing(.055f);
+        add(brand,tagline,-2,1);
+        TextView version=label("RC6",11,ACCENT,true);
+        version.setGravity(Gravity.CENTER);
+        version.setBackground(rounded(SOFT_ACCENT,50,0xff25665F));
+        header.addView(version,new LinearLayout.LayoutParams(dp(48),dp(30)));
+        add(root,header,58,0);
 
         LinearLayout connection=card();
-        add(connection,label("🛡  وضعیت VPN",21,INK,true),36,0);
-        status=label("در حال بررسی وضعیت…",16,ACCENT,true);
-        add(connection,status,43,7);
-        caption=label("ابتدا یک حساب وارد کن. پروفایل VPN خودکار نصب می‌شود.",13,MUTED,false);
+        connection.setPadding(dp(21),dp(22),dp(21),dp(22));
+        connection.setBackground(gradient(0xff1C3048,0xff121E31,25));
+        LinearLayout top=new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(overline("وضعیت اتصال"),new LinearLayout.LayoutParams(0,dp(32),1));
+        connectionPill=label("قطع",12,MUTED,true);
+        connectionPill.setGravity(Gravity.CENTER);
+        connectionPill.setPadding(dp(14),0,dp(14),0);
+        connectionPill.setBackground(rounded(RAISED,99,BORDER));
+        top.addView(connectionPill,new LinearLayout.LayoutParams(-2,dp(30)));
+        add(connection,top,34,0);
+        status=label("آماده اتصال",23,INK,true);
+        status.setMaxLines(2);
+        add(connection,status,-2,12);
+        caption=label("پس از تأیید VPN، مرورگر آماده می‌شود.",13,MUTED,false);
         caption.setMaxLines(3);
-        add(connection,caption,-2,0);
+        caption.setLineSpacing(dp(3),1f);
+        add(connection,caption,-2,7);
         pending=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
         pending.setIndeterminate(true);
+        pending.getIndeterminateDrawable().setTint(ACCENT);
         pending.setVisibility(View.GONE);
-        add(connection,pending,7,17);
-        power=action("اتصال امن",0xff0a8f83,this::onPower);
-        add(connection,power,55,16);
-        profileLabel=label("پروفایل: نصب نشده",13,MUTED,false);
-        add(connection,profileLabel,38,10);
-        serverPicker=action("🌍  انتخاب سرور / لوکیشن",0xff285777,this::chooseServer);
-        add(connection,serverPicker,53,8);
-        serverLabel=label("سرور: هنوز انتخاب نشده",13,ACCENT,false);
-        serverLabel.setMaxLines(2);
-        add(connection,serverLabel,-2,7);
-        inlineError=label("",12,WARNING,false);
-        inlineError.setMaxLines(4);
+        add(connection,pending,4,17);
+        power=action("اتصال امن",ACCENT,this::onPower);
+        power.setTextSize(17);
+        add(connection,power,60,22);
+        inlineError=label("",13,WARNING,false);
+        inlineError.setLineSpacing(dp(3),1f);
+        inlineError.setMaxLines(5);
         inlineError.setVisibility(View.GONE);
-        add(connection,inlineError,-2,6);
-        recovery=action("↻  رفع مشکل و به‌روزرسانی اشتراک",0xff33516a,()->{
+        add(connection,inlineError,-2,12);
+        recovery=action("بررسی دوباره و به‌روزرسانی",RAISED,()->{
             try{
                 AccountStore.Account a=vault.selected();
                 if(a==null)pickAccount(); else importSubscription(a,true);
             }catch(Exception ignored){error("ACCOUNT_VAULT_ERROR");}
         });
         recovery.setVisibility(View.GONE);
-        add(connection,recovery,50,10);
-        add(root,connection,-2,22);
+        add(connection,recovery,52,11);
+        add(root,connection,-2,24);
+
+        LinearLayout locations=card();
+        sectionHeading(locations,"مسیر اتصال","SERVER");
+        add(locations,overline("لوکیشن انتخاب‌شده"),-2,8);
+        serverLabel=label("در انتظار دریافت سرورها",18,INK,true);
+        serverLabel.setMaxLines(2);
+        serverLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        serverLabel.setContentDescription("سرور VPN انتخاب‌شده");
+        add(locations,serverLabel,-2,4);
+        serverPicker=action("انتخاب یا تغییر سرور",RAISED,this::chooseServer);
+        add(locations,serverPicker,52,13);
+        profileLabel=label("هنوز پروفایلی نصب نشده",12,MUTED,false);
+        profileLabel.setMaxLines(2);
+        add(locations,profileLabel,-2,13);
+        add(root,locations,-2,14);
 
         LinearLayout profile=card();
-        add(profile,label("👤  حساب و ورود",19,INK,true),35,0);
+        sectionHeading(profile,"حساب‌ها","ACCOUNT");
+        add(profile,overline("حساب فعال"),-2,9);
         spinner=new Spinner(this);
-        spinner.setBackground(shape(0xff223652,10));
-        spinner.setMinimumHeight(dp(52));
+        spinner.setBackground(rounded(RAISED,13,BORDER));
+        spinner.setMinimumHeight(dp(54));
         spinner.setContentDescription("انتخاب حساب فعال FHG");
-        add(profile,spinner,52,6);
+        add(profile,spinner,54,9);
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
             @Override public void onNothingSelected(AdapterView<?> parent){}
             @Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){
@@ -249,44 +338,66 @@ public final class MainActivity extends Activity {
                 update();
             }
         });
+
         accountLabel=label("حسابی وارد نشده",12,MUTED,false);
-        add(profile,accountLabel,38,5);
-        add(profile,action("افزودن حساب از فایل چهارخطی",0xff254e67,this::pickAccount),50,6);
-        otp=label("کد 2FA: —",22,INK,true);
-        add(profile,otp,44,9);
-        add(profile,action("کپی کد 2FA",0xff32465c,this::copyOtp),45,0);
+        accountLabel.setMaxLines(2);
+        accountLabel.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        accountLabel.setTextDirection(View.TEXT_DIRECTION_LTR);
+        add(profile,accountLabel,-2,8);
+        add(profile,action("افزودن حساب از فایل",RAISED,this::pickAccount),52,13);
+        View separator=new View(this);
+        separator.setBackgroundColor(BORDER);
+        add(profile,separator,1,17);
+        add(profile,overline("احراز هویت دومرحله‌ای"),-2,15);
+        LinearLayout otpRow=new LinearLayout(this);
+        otpRow.setOrientation(LinearLayout.HORIZONTAL);
+        otpRow.setGravity(Gravity.CENTER_VERTICAL);
+        otp=label("2FA: —",22,INK,true);
+        otp.setTextDirection(View.TEXT_DIRECTION_LTR);
+        otpRow.addView(otp,new LinearLayout.LayoutParams(0,dp(52),1));
+        Button copy=action("کپی کد",RAISED,this::copyOtp);
+        otpRow.addView(copy,new LinearLayout.LayoutParams(dp(112),dp(49)));
+        add(profile,otpRow,54,4);
         add(root,profile,-2,14);
 
         LinearLayout browsing=card();
-        add(browsing,label("🌐  مرورگر ChatGPT",19,INK,true),36,0);
-        add(browsing,label("ورود به ChatGPT دستی است؛ اطلاعات حساب فقط برای دامنه‌های رسمی تکمیل می‌شود.",13,MUTED,false),-2,2);
-        browser=action("ورود به ChatGPT",0xff1773aa,this::openBrowser);
-        add(browsing,browser,55,17);
+        sectionHeading(browsing,"مرورگر اختصاصی","BROWSER");
+        TextView detail=label("ورود به ChatGPT فقط پس از تأیید اتصال امن VPN فعال می‌شود.",13,MUTED,false);
+        detail.setLineSpacing(dp(3),1f);
+        add(browsing,detail,-2,6);
+        browser=action("باز کردن ChatGPT",0xff2765B4,this::openBrowser);
+        add(browsing,browser,56,17);
         add(root,browsing,-2,14);
 
-        advanced=action("⚙  تنظیمات و ابزارها  ▾",0xff27364e,()->{
+        advanced=action("تنظیمات بیشتر  ▾",RAISED,()->{
             expanded=!expanded;
             advancedPanel.setVisibility(expanded?View.VISIBLE:View.GONE);
-            advanced.setText(expanded?"⚙  بستن تنظیمات  ▴":"⚙  تنظیمات و ابزارها  ▾");
+            advanced.setText(expanded?"بستن تنظیمات  ▴":"تنظیمات بیشتر  ▾");
         });
-        add(root,advanced,49,14);
+        add(root,advanced,54,16);
         advancedPanel=card();
         advancedPanel.setVisibility(View.GONE);
-        add(advancedPanel,action("اصلاح لینک اشتراک",0xff295577,this::editSubscription),48,0);
-        add(advancedPanel,action("به‌روزرسانی اشتراک",0xff295577,()->{
-            try{
+        sectionHeading(advancedPanel,"ابزارها و تنظیمات","TOOLS");
+        add(advancedPanel,action("ویرایش لینک اشتراک",RAISED,this::editSubscription),52,9);
+        add(advancedPanel,action("به‌روزرسانی سرورها",RAISED,()->{
+            try {
                 AccountStore.Account a=vault.selected();
-                if(a==null){pickAccount();return;}
-                importSubscription(a,false);
+                if(a==null)pickAccount(); else importSubscription(a,false);
             }catch(Exception e){error("ACCOUNT_VAULT_ERROR");}
-        }),48,0);
-        add(advancedPanel,action("ورود کانفیگ از فایل JSON / YAML",0xff295577,this::pickProxyFile),48,8);
-        add(advancedPanel,action("تنظیمات Always-on VPN و Kill Switch",0xff295577,this::openVpnSettings),48,8);
-        add(advancedPanel,action("گزارش فنی بدون اطلاعات محرمانه",0xff295577,this::shareDiagnostics),48,8);
-        add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
-        add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
-        add(root,advancedPanel,-2,7);
-        add(root,label("FHG Secure 1.0 RC5  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
+        }),52,9);
+        add(advancedPanel,action("وارد کردن JSON / YAML",RAISED,this::pickProxyFile),52,9);
+        add(advancedPanel,action("Always-on VPN و Kill Switch",RAISED,this::openVpnSettings),52,9);
+        add(advancedPanel,action("گزارش فنی بدون اطلاعات محرمانه",RAISED,this::shareDiagnostics),52,9);
+        add(advancedPanel,action("قطع VPN",0xff56333C,this::disconnect),52,9);
+        TextView safety=label("برای محافظت کل دستگاه، گزینه Block connections without VPN را از تنظیمات اندروید فعال کن.",12,MUTED,false);
+        safety.setLineSpacing(dp(3),1f);
+        add(advancedPanel,safety,-2,14);
+        add(root,advancedPanel,-2,10);
+        TextView footer=label("FHG SECURE  ·  ANDROID RC6  ·  ARM64",11,MUTED,false);
+        footer.setGravity(Gravity.CENTER);
+        footer.setTextDirection(View.TEXT_DIRECTION_LTR);
+        footer.setLetterSpacing(.04f);
+        add(root,footer,46,17);
     }
 
     private void loadAccounts(){
@@ -335,18 +446,34 @@ public final class MainActivity extends Activity {
         boolean tunnelOpen=EmbeddedVpnService.isTunnelUp();
         boolean working=importing||EmbeddedVpnService.isStarting()||state.equals("CHECKING");
         pending.setVisibility(working?View.VISIBLE:View.GONE);
-        status.setText(connected?"متصل • ترافیک VPN بررسی شد":
+        status.setText(connected?"اتصال امن برقرار است":
             importing?"در حال دریافت و نصب خودکار پروفایل…":
-            state.equals("CHECKING")?"تونل ساخته شد؛ در حال آزمون اینترنت…":
-            state.equals("STARTING")?"در حال راه‌اندازی موتور VPN…":
-            reconnecting?"اتصال موقتاً قطع شده؛ بازیابی امن…":
+            state.equals("CHECKING")?"در حال بررسی اتصال…":
+            state.equals("STARTING")?"در حال اتصال…":
+            reconnecting?"در حال بازیابی اتصال…":
             state.equals("FAILED")?"اتصال برقرار نشد":"آماده اتصال");
         status.setTextColor(connected?ACCENT:working||reconnecting?0xffffd180:INK);
         status.setContentDescription("وضعیت VPN: "+status.getText());
-        caption.setText(connected?"VPN و مسیر HTTPS آزمون شده‌اند؛ مرورگر آماده است.":
+        caption.setText(connected?"مسیر HTTPS از شبکه VPN تأیید شده؛ مرورگر آماده است.":
             importing?"اشتراک با HTTPS در حال نصب خودکار است؛ دانلود اولیه ممکن است قبل از VPN انجام شود.":
-            "تا هنگام تأیید اتصال، دسترسی مرورگر مسدود می‌ماند.");
-        power.setText(tunnelOpen?"■  قطع VPN":"●  اتصال VPN");
+            "تا زمان تأیید VPN، مرورگر برای محافظت از اطلاعات غیرفعال می‌ماند.");
+        power.setText(tunnelOpen?"قطع اتصال VPN":"اتصال امن");
+        if(tunnelOpen!=lastPowerStyleConnected){
+            lastPowerStyleConnected=tunnelOpen;
+            power.setBackground(touchBackground(tunnelOpen?RAISED:ACCENT,16));
+            power.setTextColor(tunnelOpen?INK:BG);
+        }
+        connectionPill.setText(connected?"متصل":
+            reconnecting?"بازیابی":working?"در حال اتصال":
+            state.equals("FAILED")?"نیاز به بررسی":"قطع");
+        int pillColor=connected?SOFT_ACCENT:
+            state.equals("FAILED")?0xff422D2A:
+            working||reconnecting?0xff433625:RAISED;
+        int pillText=connected?ACCENT:
+            state.equals("FAILED")?WARNING:
+            working||reconnecting?0xffF6D29A:MUTED;
+        connectionPill.setTextColor(pillText);
+        connectionPill.setBackground(rounded(pillColor,99,0));
         power.setEnabled(!working);
         power.setAlpha(working?.55f:1f);
         power.setContentDescription(tunnelOpen?"قطع تونل VPN FHG":"اتصال تونل VPN FHG");
@@ -364,15 +491,15 @@ public final class MainActivity extends Activity {
             if(account==null){
                 serverPicker.setEnabled(false);
                 serverPicker.setAlpha(.55f);
-                serverLabel.setText("سرور: حسابی انتخاب نشده");
+                serverLabel.setText("حسابی انتخاب نشده");
                 accountLabel.setText("فایل چهارخطی حساب را انتخاب کن");
                 profileLabel.setText("پروفایل: نصب نشده");
                 otp.setText("2FA: —");
             } else {
                 accountLabel.setText(account.email);
                 if(!vault.hasVpnConfig(account.id)) {
-                    profileLabel.setText("پروفایل: هنوز نصب نشده");
-                    serverLabel.setText("سرور: پس از نصب اشتراک قابل انتخاب است");
+                    profileLabel.setText("هنوز پروفایلی نصب نشده");
+                    serverLabel.setText("ابتدا اشتراک را نصب کن");
                     serverPicker.setEnabled(false);
                     serverPicker.setAlpha(.55f);
                 }
@@ -381,15 +508,15 @@ public final class MainActivity extends Activity {
                     serverPicker.setAlpha(serverPicker.isEnabled()?1f:.55f);
                     String existing=vault.loadVpnConfig(account.id);
                     String choice=VpnConfig.selectedTag(existing);
-                    serverLabel.setText("سرور فعال: "+displayServer(choice));
+                    serverLabel.setText(displayServer(choice));
                     if(!lastImportedProfile.isEmpty())
                         profileLabel.setText(lastImportedProfile);
                     else {
-                    JSONObject config=new JSONObject(vault.loadVpnConfig(account.id));
+                    JSONObject config=new JSONObject(existing);
                     JSONArray outs=config.getJSONArray("outbounds");
                     int n=0; for(int i=0;i<outs.length();i++)
                         if(!"urltest".equals(outs.getJSONObject(i).optString("type")))n++;
-                    profileLabel.setText("پروفایل نصب‌شده  •  "+n+" سرور");
+                    profileLabel.setText(n+" سرور در اشتراک آماده است");
                     }
                 }
                 otp.setText(account.totpSecret.isEmpty()?"2FA: —":
@@ -470,7 +597,7 @@ public final class MainActivity extends Activity {
                 runOnUiThread(()->{
                     if(isFinishing()||isDestroyed()||generation!=importRevision)return;
                     importing=false;
-                    lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور  •  "+p.format;
+                    lastImportedProfile=p.proxies+" سرور  ·  "+p.format;
                     lastImportError="";
                     update();
                     if(connectWhenReady){
@@ -532,7 +659,7 @@ public final class MainActivity extends Activity {
                 SubscriptionManager.Profile p=SubscriptionManager.importLocal(this,
                     account.id,data.toString("UTF-8"));
                 runOnUiThread(()->{
-                    lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور";
+                    lastImportedProfile=p.proxies+" سرور آماده است";
                     lastImportError="";
                     update();
                     connectVpn();

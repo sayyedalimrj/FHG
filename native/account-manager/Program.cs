@@ -127,6 +127,7 @@ internal sealed class AccountsWindow : Form
         root.Controls.Add(toolbar, 0, 1);
         toolbar.Controls.Add(MakeButton("+  Add account", AddAccount, true, 156));
         toolbar.Controls.Add(MakeButton("Open selected", () => ActivateAccount(Selected()), false, 151));
+        toolbar.Controls.Add(MakeButton("Sync Authenticator", () => SyncOriginalAuthenticator(Selected()), true, 174));
         toolbar.Controls.Add(MakeButton("Edit account", () => EditAccount(Selected()), false, 132));
         toolbar.Controls.Add(MakeButton("Delete account", () => DeleteAccount(Selected()), false, 142));
         toolbar.Controls.Add(MakeButton("Copy username", () => CopyUsername(Selected()), false, 147));
@@ -294,12 +295,12 @@ internal sealed class AccountsWindow : Form
         card.Controls.Add(sub);
         var setupLink = new LinkLabel
         {
-            Text = "Copy setup link for Firefox Authenticator",
+            Text = "Sync to original Firefox Authenticator",
             Left = 26, Top = 115, Width = 400, Height = 22,
             LinkColor = Accent, ActiveLinkColor = Mint, Font = SmallFont,
             Cursor = Cursors.Hand
         };
-        setupLink.LinkClicked += (_, _) => Safely(() => CopyAuthenticatorSetup(account));
+        setupLink.LinkClicked += (_, _) => Safely(() => SyncOriginalAuthenticator(account));
         card.Controls.Add(setupLink);
         var code = new Label
         {
@@ -334,7 +335,7 @@ internal sealed class AccountsWindow : Form
         delete.Left = 180; delete.Top = 188; delete.Height = 36;
         delete.ForeColor = Color.FromArgb(183, 49, 57);
         card.Controls.Add(delete);
-        var authenticator = MakeButton("Setup Firefox Authenticator", () => CopyAuthenticatorSetup(account), true, 267);
+        var authenticator = MakeButton("Sync original Authenticator", () => SyncOriginalAuthenticator(account), true, 267);
         authenticator.Left = 335; authenticator.Top = 188; authenticator.Height = 36;
         card.Controls.Add(authenticator);
         card.Resize += (_, _) =>
@@ -448,6 +449,43 @@ internal sealed class AccountsWindow : Form
         }
     }
 
+    private bool SyncOriginalAuthenticator(FhgAccount account)
+    {
+        string exe = Path.Combine(AppContext.BaseDirectory, "FHGAuthenticatorSync.exe");
+        if (!File.Exists(exe))
+            throw new InvalidOperationException("FHG Authenticator Sync helper is missing. Reinstall the complete package.");
+        using var process = Process.Start(new ProcessStartInfo(exe) {
+            WorkingDirectory = AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            Arguments = "--account " + account.Id
+        }) ?? throw new IOException("Could not start Authenticator Sync helper.");
+        if (!process.WaitForExit(20000))
+        {
+            try { process.Kill(); } catch { }
+            throw new IOException("Authenticator Sync timed out.");
+        }
+        if (process.ExitCode == 0)
+        {
+            status.Text = "Authenticator by mymindstorm synced in this FHG Firefox profile. Existing OTP entries preserved.";
+            return true;
+        }
+        if (process.ExitCode == 2)
+        {
+            status.Text = "Close FHG Firefox, then reopen this account; Authenticator storage is currently in use.";
+            MessageBox.Show(this,
+                "FHG Firefox is using its profile. Close FHG Firefox and select this account again. Your regular Firefox does not need to close.",
+                "Authenticator data is busy", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return false;
+        }
+        status.Text = "Authenticator Sync could not safely update the original Firefox storage. Existing data was not deleted.";
+        MessageBox.Show(this,
+            "This Firefox profile uses an unsupported or protected Authenticator storage state. FHG refused to overwrite it.\n\n" +
+            "If you enabled a master password inside Authenticator, its encrypted entries cannot be directly mixed with plaintext data.",
+            "Authenticator storage needs review", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        return false;
+    }
+
     private void CopyAuthenticatorSetup(FhgAccount account)
     {
         // Authenticator by mymindstorm explicitly supports importing text
@@ -476,14 +514,8 @@ internal sealed class AccountsWindow : Form
             CheckFileExists = true, Multiselect = false
         };
         if (picker.ShowDialog(this) != DialogResult.OK) return;
-        if (MessageBox.Show(this,
-            "This file contains your password, a 2FA master secret and a subscription token.\n\n" +
-            "Store them encrypted only for this Windows user with DPAPI?\n" +
-            "They will not be entered into ChatGPT or written into Firefox extension storage automatically.",
-            "FHG — import private credentials",
-            MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
-            MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-
+        // The user explicitly selected the private local account file.
+        // Encrypt the vault and sync the ORIGINAL Authenticator by default.
         var added = AccountVault.ImportFourLineFile(picker.FileName);
         LoadCards(added.Id);
         ActivateAccount(added);
@@ -508,6 +540,7 @@ internal sealed class AccountsWindow : Form
         ClearOwnedClipboard();
         AccountVault.SetActive(account.Id);
         LoadCards(account.Id);
+        if (!SyncOriginalAuthenticator(account)) return;
         string? ticket = null;
         try
         {
@@ -594,7 +627,8 @@ internal sealed class AccountsWindow : Form
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         ClearOwnedClipboard();
         LoadCards(account.Id);
-        status.Text = "Account updated in encrypted vault. Firefox account profile preserved. Restart FHG Proxy to apply a changed subscription.";
+        SyncOriginalAuthenticator(AccountVault.Load().First(a => a.Id == account.Id));
+        status.Text = "Account updated. Authenticator Sync attempted; restart FHG Proxy to apply subscription changes.";
     }
 
     private void DeleteAccount(FhgAccount account)

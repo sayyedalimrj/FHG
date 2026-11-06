@@ -16,7 +16,7 @@ try {
         "<input type='email' name='username' autocomplete='email'>"+
         "<input type='password' name='current-password' autocomplete='current-password'>"+
         "<input type='text' name='code' autocomplete='one-time-code'>"+
-        "<button type='submit'>Continue</button></form></body></html>";
+        "<button type='submit' onpointerdown='document.body.dataset.pointerdown=event.isTrusted?1:0' onpointerup='document.body.dataset.pointerup=event.isTrusted?1:0'>Continue</button></form></body></html>";
     browser.GoTo("data:text/html;charset=utf-8,"+Uri.EscapeDataString(html));
     var cases=new (string Selector,string Value)[] {
         ("input[name='username']","reader+tag@example.invalid"),
@@ -32,10 +32,11 @@ try {
     }
     string? submit=browser.FindVisible("form button[type='submit']");
     Verify(submit!=null,"submit button");
-    browser.Click(submit!);
+    browser.PointerClick(submit!);
     Verify(browser.IsPresent("body[data-ok='1']"),"native submit event");
+    Verify(browser.IsPresent("body[data-pointerdown='1'][data-pointerup='1']"),"trusted physical pointer down/up events");
     Verify(OriginalTimezoneSync.GermanDaylightSavingRules(),"Berlin winter/summer offsets");
-    Console.WriteLine("PASS: Firefox exact plus/email, Unicode password, six-digit OTP and native button click; Berlin CET/CEST");
+    Console.WriteLine("PASS: Firefox exact plus/email, Unicode password, six-digit OTP and trusted mouse pointer Continue click; Berlin CET/CEST");
 }
 finally {
     try{Directory.Delete(dir,true);}catch{}

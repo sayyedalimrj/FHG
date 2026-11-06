@@ -26,17 +26,26 @@ try {
     foreach(var (css,value) in cases) {
         string? id=browser.FindVisible(css);
         Verify(id!=null,css+" visible");
-        browser.Fill(id!,value);
+        browser.TypeIntoField(id!,value);
         Verify(string.Equals(browser.ElementValue(id!),value,StringComparison.Ordinal),
             css+" exact Unicode value, no extra key chars");
     }
+    // Automation typed into inputs, but must never submit the form. This
+    // browser test separately performs an explicit, simulated USER click.
+    Verify(!browser.IsPresent("body[data-ok='1']"),"Continue not automatically submitted");
     string? submit=browser.FindVisible("form button[type='submit']");
     Verify(submit!=null,"submit button");
-    browser.PointerClick(submit!);
+    browser.Click(submit!);
     Verify(browser.IsPresent("body[data-ok='1']"),"native submit event");
     Verify(browser.IsPresent("body[data-pointerdown='1'][data-pointerup='1']"),"trusted physical pointer down/up events");
+    // Full-page Cloudflare-style verification must be recognized without
+    // attempting any CAPTCHA solve or submitting credentials to it.
+    const string challenge="<html><head><title>Just a moment...</title></head>"+
+        "<body><h2>auth.openai.com</h2><p>Verifying you are human.</p></body></html>";
+    browser.GoTo("data:text/html;charset=utf-8,"+Uri.EscapeDataString(challenge));
+    Verify(browser.IsSecurityChallenge(),"Cloudflare-style security page recognized");
     Verify(OriginalTimezoneSync.GermanDaylightSavingRules(),"Berlin winter/summer offsets");
-    Console.WriteLine("PASS: Firefox exact plus/email, Unicode password, six-digit OTP and trusted mouse pointer Continue click; Berlin CET/CEST");
+    Console.WriteLine("PASS: Firefox exact plus/email, Unicode password, six-digit OTP and NO automatic Continue, explicit simulated user click, safe challenge detection; Berlin CET/CEST");
 }
 finally {
     try{Directory.Delete(dir,true);}catch{}

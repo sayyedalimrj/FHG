@@ -129,7 +129,7 @@ public final class MainActivity extends Activity {
 
         TextView title = text("FHG  •  ANDROID", 25, Color.WHITE, true);
         attach(root, title, 40, 0);
-        TextView subtitle = text("مرورگر جداگانه، حساب‌های محفوظ و اتصال تحت VPN", 12, MUTED, false);
+        TextView subtitle = text("مرورگر خصوصی، حساب‌های محفوظ و VPN داخلی sing-box", 12, MUTED, false);
         attach(root, subtitle, 32, 0);
 
         LinearLayout vpn = card();
@@ -174,7 +174,7 @@ public final class MainActivity extends Activity {
         attach(browser, hint, 45, 4);
         attach(root, browser, -2, 16);
 
-        TextView footer = text("FHG Android • build 0.1 beta • Browser uses GeckoView • Hiddify manages the VPN tunnel", 10, MUTED, false);
+        TextView footer = text("FHG Android • 0.2 beta • GeckoView + integrated sing-box VPN", 10, MUTED, false);
         attach(root, footer, 70, 13);
     }
 

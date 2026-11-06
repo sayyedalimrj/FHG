@@ -1,4 +1,6 @@
-# FHG Android 0.2 — embedded sing-box VPN beta
+# FHG Android 0.2.1 — embedded sing-box VPN beta
+
+**The embedded-VPN APK uses a separate application ID (`com.fhg.android.embedded`) from the original FHG 0.1 beta, so both can remain installed side by side. This avoids forcing an uninstall when the earlier CI debug signing key differs. Reimport the original four-line file into the new app; Keystore vaults are intentionally not shared across apps. This beta's own debug signing key is also not suitable for reliable future upgrades; a stable production signing key is required.**
 
 **This APK puts the protected GeckoView browser, encrypted account vault, offline TOTP and a real sing-box VPN tunnel into the same application.** There is no second Hiddify app or cross-app import required. This beta has **not** been validated end-to-end on a physical phone.
 

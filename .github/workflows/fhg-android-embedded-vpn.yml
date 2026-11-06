@@ -62,7 +62,10 @@ jobs:
           grep -q 'contextId(account.id)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
           grep -q 'setAutocompleteStorageDelegate' android/app/src/main/java/com/fhg/android/BrowserActivity.java
           grep -q 'request.confirm' android/app/src/main/java/com/fhg/android/BrowserActivity.java
-          grep -q 'setPackage("app.hiddify.com")' android/app/src/main/java/com/fhg/android/MainActivity.java
+          if grep -q 'setPackage("app.hiddify.com")' android/app/src/main/java/com/fhg/android/MainActivity.java; then
+            echo 'External Hiddify dependency accidentally returned' >&2
+            exit 1
+          fi
           grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
           test ! -e android/app/src/main/java/com/fhg/android/PLACEHOLDER_VPN.java
           echo 'PASS: Android Keystore, GeckoView, embedded real libbox bridge, protected sockets and fail-closed browser gate'

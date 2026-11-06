@@ -311,6 +311,11 @@ internal sealed class WorkspaceWindow : Form
         if(!File.Exists(exe))throw new IOException("FHG launcher missing");
         ClearOwnedClipboard();
         AccountVault.SetActive(account.Id);
+        if (!proxyOnly)
+        {
+            try { LoginProgress.Write(account.Id, "STARTING"); }
+            catch (IOException) { }
+        }
         selectedId=account.Id;
         LoadAccounts(account.Id);
         var info=new ProcessStartInfo(exe) {
@@ -321,7 +326,7 @@ internal sealed class WorkspaceWindow : Form
         if(started is null)throw new IOException("Could not start FHG");
         this.info.Text=proxyOnly
             ? "Opening the dedicated FHG Proxy with the selected subscription."
-            : "Starting automatic subscription, secure connection check, Authenticator and ChatGPT sign-in.";
+            : "Preparing protected Firefox and encrypted password storage. You handle ChatGPT sign-in.";
     }
 
     private void AddAccount()

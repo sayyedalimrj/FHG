@@ -10,7 +10,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <AssemblyName>FHGLogin</AssemblyName>
-    <Version>0.6.3</Version>
+    <Version>0.6.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../account-manager/AccountVault.cs" Link="AccountVault.cs" />

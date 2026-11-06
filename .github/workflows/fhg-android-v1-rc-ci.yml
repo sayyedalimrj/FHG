@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "applicationId 'com.fhg.android.repair'" android/app/build.gradle
+          grep -q "applicationId 'com.fhg.android.secure'" android/app/build.gradle
           grep -q 'native-validated profile' android/README.md || true
           grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
@@ -92,7 +92,7 @@ jobs:
         env:
           FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
         run: |
-          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
       - name: Validate real generated proxy config with pinned sing-box CLI
         shell: bash
         run: |

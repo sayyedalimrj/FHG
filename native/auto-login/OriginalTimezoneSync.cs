@@ -13,7 +13,7 @@ internal static class OriginalTimezoneSync
         const map = JSON.parse(Services.prefs.getStringPref("extensions.webextensions.uuids","{}"));
         const uuid = map["{55f61747-c3d3-4425-97f9-dfc19a0be23c}"];
         if (typeof uuid !== "string" || !/^[a-f0-9-]{36}$/i.test(uuid)) return "";
-        gBrowser.selectedBrowser.loadURI(
+        gBrowser.selectedTab = gBrowser.addTab(
             "moz-extension://" + uuid + "/data/options/index.html",
             {triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal()});
         return uuid;

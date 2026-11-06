@@ -1,4 +1,4 @@
-name: FHG Android integrated sing-box VPN + GeckoView 0.2 beta
+name: FHG Android integrated sing-box VPN + GeckoView 0.2.1 beta
 
 on:
   push:
@@ -47,6 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -q "applicationId 'com.fhg.android.embedded'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
           grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
           grep -q 'TRANSPORT_VPN' android/app/src/main/java/com/fhg/android/NetworkGate.java
@@ -90,17 +91,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-0.2.0-embedded-vpn-beta.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-0.2.1-embedded-vpn-beta.apk
           cd dist
-          sha256sum FHG-Android-0.2.0-embedded-vpn-beta.apk > FHG-Android-0.2.0-embedded-vpn-beta.apk.sha256
-          unzip -t FHG-Android-0.2.0-embedded-vpn-beta.apk | tail -2
-          SIZE=$(stat -c%s FHG-Android-0.2.0-embedded-vpn-beta.apk)
+          sha256sum FHG-Android-0.2.1-embedded-vpn-beta.apk > FHG-Android-0.2.1-embedded-vpn-beta.apk.sha256
+          unzip -t FHG-Android-0.2.1-embedded-vpn-beta.apk | tail -2
+          SIZE=$(stat -c%s FHG-Android-0.2.1-embedded-vpn-beta.apk)
           if [ "$SIZE" -lt 1000000 ]; then echo 'APK suspiciously small' >&2; exit 1; fi
           echo "PASS: Android GeckoView debug APK built, validated, SHA-256 written; bytes=$SIZE"
       - uses: actions/upload-artifact@v4
         with:
-          name: FHG-Android-0.2.0-embedded-vpn-beta-APK
-          path: dist/FHG-Android-0.2.0-embedded-vpn-beta.apk*
+          name: FHG-Android-0.2.1-embedded-vpn-beta-APK
+          path: dist/FHG-Android-0.2.1-embedded-vpn-beta.apk*
           if-no-files-found: error
       - name: Publish testable Android beta APK only after all gates
         env:
@@ -108,9 +109,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="android-v0.2.0-embedded-beta.1"
+          TAG="android-v0.2.1-embedded-beta.2"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Existing Android beta release tag is immutable; refusing overwrite" >&2
             exit 1
           fi
-          gh release create "$TAG"             dist/FHG-Android-0.2.0-embedded-vpn-beta.apk             dist/FHG-Android-0.2.0-embedded-vpn-beta.apk.sha256             --target "$GITHUB_SHA"             --title 'FHG Android 0.2.0 Beta — Integrated sing-box VPN + GeckoView'             --notes-file android/EMBEDDED-VPN.md             --prerelease --latest=false
+          gh release create "$TAG"             dist/FHG-Android-0.2.1-embedded-vpn-beta.apk             dist/FHG-Android-0.2.1-embedded-vpn-beta.apk.sha256             --target "$GITHUB_SHA"             --title 'FHG Android 0.2.1 Beta — Integrated sing-box VPN + GeckoView'             --notes-file android/EMBEDDED-VPN.md             --prerelease --latest=false

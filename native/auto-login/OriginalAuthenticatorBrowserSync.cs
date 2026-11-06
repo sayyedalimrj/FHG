@@ -145,7 +145,12 @@ internal static class OriginalAuthenticatorBrowserSync
             !response.TryGetProperty("status",out var status) ||
             status.ValueKind != JsonValueKind.String)
             return "INVALID_REPLY";
-        return status.GetString() ?? "INVALID_REPLY";
+        string state = status.GetString() ?? "INVALID_REPLY";
+        if (state == "OK" &&
+            response.TryGetProperty("count", out var changeCount) &&
+            changeCount.ValueKind == JsonValueKind.Number)
+            return "OK:" + changeCount.GetInt32();
+        return state;
     }
 
     private static string StableUuid(string accountId)

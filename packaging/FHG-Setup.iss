@@ -21,8 +21,15 @@ AllowNoIcons=no
 WizardStyle=modern
 WizardSizePercent=110
 ShowLanguageDialog=no
-Compression=lzma2
+; Highest Inno Setup 6 built-in LZMA2 level.
+; A 256 MiB dictionary needs roughly 3 GiB at build-time and
+; 256 MiB at installation; keep within hosted Windows runner RAM.
+Compression=lzma2/ultra64
 SolidCompression=yes
+LZMADictionarySize=262144
+LZMANumFastBytes=273
+LZMAUseSeparateProcess=yes
+LZMANumBlockThreads=1
 OutputDir=installer-output
 OutputBaseFilename=FHG-Setup-Windows-x64-{#FhgVersion}
 SetupIconFile=native\original-ui\Assets\FHG.ico

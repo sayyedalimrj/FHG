@@ -352,7 +352,9 @@ public final class MainActivity extends Activity {
         LinearLayout otpRow=new LinearLayout(this);
         otpRow.setOrientation(LinearLayout.HORIZONTAL);
         otpRow.setGravity(Gravity.CENTER_VERTICAL);
-        otp=label("2FA: —",22,INK,true);
+        otp=label("—",20,INK,true);
+        otp.setSingleLine(true);
+        otp.setEllipsize(android.text.TextUtils.TruncateAt.END);
         otp.setTextDirection(View.TEXT_DIRECTION_LTR);
         otpRow.addView(otp,new LinearLayout.LayoutParams(0,dp(52),1));
         Button copy=action("کپی کد",RAISED,this::copyOtp);
@@ -519,9 +521,9 @@ public final class MainActivity extends Activity {
                     profileLabel.setText(n+" سرور در اشتراک آماده است");
                     }
                 }
-                otp.setText(account.totpSecret.isEmpty()?"2FA: —":
-                    "2FA: "+Totp.now(account.totpSecret)+"  ("+
-                    Totp.secondsRemaining()+" ثانیه)");
+                otp.setText(account.totpSecret.isEmpty()?"کد فعال نیست":
+                    Totp.now(account.totpSecret)+"   ·   "+
+                    Totp.secondsRemaining()+"s");
             }
         }catch(Exception e){
             accountLabel.setText("خزانه اطلاعات در دسترس نیست");

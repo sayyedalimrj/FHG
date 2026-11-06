@@ -324,6 +324,7 @@ public final class MainActivity extends Activity {
             case "YAML_REMOTE_PROVIDER_UNSUPPORTED":return "این Clash YAML فقط به proxy-provider دیگری اشاره می‌کند.";
             case "PROXY_NOT_REACHABLE":return "اینترفیس VPN برقرار شد ولی خروجی HTTPS از تونل پاسخ نداد.";
             case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
+            case "VPN_CONFIG_REJECTED":return "این پروفایل با موتور sing-box نصب‌شده سازگار نیست؛ فایل یا نوع اشتراک را بررسی کن.";
             case "LIBBOX_START_ERROR":return "موتور sing-box پیکربندی را اجرا نکرد؛ پروفایل یا شبکه نیاز به بررسی دارد.";
             case "PROFILE_MISSING":return "پروفایل VPN برای حساب انتخاب‌شده نصب نشده.";
             case "FOREGROUND_SERVICE_ERROR":return "اندروید اجرای سرویس VPN در پس‌زمینه را رد کرد.";

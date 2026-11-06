@@ -197,8 +197,11 @@ internal static class Program
                 Warn("Choose a saved account before starting ChatGPT.");
                 return 14;
             }
+            // Cloudflare verification under WebDriver can loop indefinitely.
+            // Exit code 23 requests ONE handoff to ordinary, non-automated
+            // Firefox, reusing the same isolated profile and its cookies.
             int loginResult=RunAutomaticChatGptLogin(activeLoginId);
-            if (loginResult != 0)
+            if (loginResult != 0 && loginResult != 23)
             {
                 if (loginResult != 21)
                     Warn("ChatGPT login was NOT verified. No normal Firefox window " +
@@ -206,6 +209,8 @@ internal static class Program
                          "Review the status in FHG Accounts and local diagnostics.");
                 return loginResult == 21 ? 0 : 16;
             }
+            if (loginResult == 23)
+                Log("Provider security check: opening normal Firefox for user-driven verification.");
             // WebDriver owns a TEMPORARY Firefox window and closes that
             // window when its session ends. Allow its profile lock to release
             // before starting the separate, long-lived user window.
@@ -220,7 +225,9 @@ internal static class Program
             browser.ArgumentList.Add(ProfileDir);
             // If automation could not finish, open the EXACT /login URL
             // supplied by the user, not the homepage or /auth/login.
-            browser.ArgumentList.Add("https://chatgpt.com/");
+            browser.ArgumentList.Add(loginResult == 0
+                ? "https://chatgpt.com/"
+                : "https://chatgpt.com/login");
 
             // A just-closed WebDriver session can briefly leave Firefox's
             // profile locked. Retry only early process exits, never delete
@@ -230,17 +237,25 @@ internal static class Program
                 using var firefox = Process.Start(browser);
                 if (firefox != null && !firefox.WaitForExit(1400))
                 {
-                    try { LoginProgress.Write(activeLoginId, "SUCCESS"); } catch { }
-                    Log("FHG user-facing Firefox window started after verified login.");
+                    // Manual browser handoff is NOT a claim of successful
+                    // authentication. Leave that judgment with the user.
+                    try { LoginProgress.Write(activeLoginId,
+                        loginResult == 0 ? "SUCCESS" : "MANUAL_BROWSER"); }
+                    catch { }
+                    Log(loginResult == 0
+                        ? "Normal Firefox started after verified login."
+                        : "Normal Firefox started for manual security verification.");
                     return 0;
                 }
                 Log("FHG user-facing Firefox exited on attempt " + attempt + "; retrying safely.");
                 Thread.Sleep(2000 * attempt);
             }
             try { LoginProgress.Write(activeLoginId, "HANDOFF_FAILED"); } catch { }
-            Warn("ChatGPT login was VERIFIED, but normal Firefox could not stay open. " +
-                 "Your account and browser profile have NOT been deleted. " +
-                 "Review the FHG diagnostic log; do not re-enter your password blindly.");
+            Warn((loginResult == 0
+                ? "ChatGPT login was verified, but "
+                : "A manual security check is pending, but ") +
+                 "normal Firefox could not stay open. Your account and " +
+                 "private profile have NOT been deleted. Review the FHG diagnostic log.");
             return 7;
         }
         catch (Exception ex)

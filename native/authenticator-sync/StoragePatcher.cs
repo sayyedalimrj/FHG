@@ -246,13 +246,13 @@ public static class OriginalAuthenticatorStorage
 
     private static string StableUuid(string accountId)
     {
-        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes("FHG-Authenticator-v1-" + accountId));
-        byte[] id = hash[..16];
-        // Produce a stable, RFC4122 v4-looking UUID compatible with
-        // Authenticator's UUID-v4 validation; no password/secret in the key.
-        id[6] = (byte)((id[6] & 0x0F) | 0x40);
-        id[8] = (byte)((id[8] & 0x3F) | 0x80);
-        return new Guid(id).ToString("D");
+        string hex = Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes("FHG-Authenticator-v1-" + accountId))).ToLowerInvariant();
+        // Force UUIDv4 and RFC4122 variant digits for upstream validation.
+        // The key is deterministic per FHG account, contains no secrets.
+        return hex[..8] + "-" + hex.Substring(8, 4) + "-4" +
+               hex.Substring(13, 3) + "-8" + hex.Substring(17, 3) +
+               "-" + hex.Substring(20, 12);
     }
 
     private static void BackupEncrypted(SqliteConnection source, string db, string profile)

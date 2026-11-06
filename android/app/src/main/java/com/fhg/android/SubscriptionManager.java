@@ -59,6 +59,13 @@ final class SubscriptionManager {
                     String config=VpnConfig.parse(raw);
                     if (config.length()>2_000_000)throw new Exception("CONFIG_TOO_LARGE");
                     Profile parsed=new Profile(config,format);
+                    try {
+                        VpnEngineSetup.validate(context,config);
+                    } catch(Exception invalidEngineConfig) {
+                        // Native parser error may contain proxy credentials;
+                        // never expose it in logs, UI or callback.
+                        throw new Exception("VPN_CONFIG_REJECTED");
+                    }
                     // Preserve last working profile if a provider returns bad data.
                     new AccountStore(context).saveVpnConfig(account.id,config);
                     callback.complete(parsed);
@@ -83,6 +90,7 @@ final class SubscriptionManager {
     static Profile importLocal(Context context, String accountId, String content) throws Exception {
         String json=VpnConfig.parse(content);
         Profile profile=new Profile(json,identify(content));
+        VpnEngineSetup.validate(context,json);
         new AccountStore(context).saveVpnConfig(accountId,json);
         return profile;
     }
@@ -144,7 +152,7 @@ final class SubscriptionManager {
                 "SUBSCRIPTION_REDIRECT_MISSING","SUBSCRIPTION_UNKNOWN_FORMAT",
                 "NO_SUPPORTED_PROXY_NODES","JSON_HAS_NO_SUPPORTED_PROXY",
                 "JSON_NO_OUTBOUNDS","YAML_NO_PROXIES","YAML_REMOTE_PROVIDER_UNSUPPORTED",
-                "NO_SUPPORTED_YAML_NODES"
+                "NO_SUPPORTED_YAML_NODES","VPN_CONFIG_REJECTED"
             };
             for(String code:safe)if(s.contains(code))return code;
         }

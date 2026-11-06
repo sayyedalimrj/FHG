@@ -60,32 +60,99 @@ final class VpnConfig {
 
     static String parse(String original) throws Exception {
         if (original == null || original.length() > MAX_CHARS || original.isBlank())
-            throw new Exception("Invalid subscription size");
-        String clean = original.trim();
-        if (clean.startsWith("{")) return validateRawJson(clean);
-
-        // Some panels return a single base64-encoded plaintext subscription.
-        if (!clean.contains("://")) {
-            clean = base64(clean);
+            throw new Exception("EMPTY_OR_OVERSIZED_SUBSCRIPTION");
+        String clean = original.trim().replace("\\r\\n","\\n");
+        if (clean.startsWith("<!DOCTYPE") || clean.startsWith("<html") ||
+            clean.startsWith("<HTML") || clean.startsWith("<!doctype"))
+            throw new Exception("SUBSCRIPTION_RETURNED_HTML");
+        if (clean.startsWith("{")) return parseJsonSubscription(clean);
+        if (clean.startsWith("proxies:") || clean.contains("\\nproxies:"))
+            return build(ClashSubscription.parse(clean));
+        // Base64 response is typical of V2Ray/Hiddify panel subscriptions.
+        if (!clean.contains("://") && !clean.contains("proxies:")) {
+            try { clean = base64(clean).trim(); }
+            catch (Exception e) { throw new Exception("SUBSCRIPTION_UNKNOWN_FORMAT"); }
         }
+        if (clean.startsWith("{")) return parseJsonSubscription(clean);
+        if (clean.startsWith("proxies:") || clean.contains("\\nproxies:"))
+            return build(ClashSubscription.parse(clean));
         List<JSONObject> outbounds = new ArrayList<>();
         int row = 0;
-        for (String line : clean.split("\\r?\\n")) {
+        for (String line : clean.split("\\n")) {
             String link = line.trim();
             if (link.isEmpty() || link.startsWith("#")) continue;
             if (++row > MAX_NODES) break;
             JSONObject outbound;
-            if (link.startsWith("vless://")) outbound = parseVless(link);
-            else if (link.startsWith("trojan://")) outbound = parseTrojan(link);
-            else if (link.startsWith("vmess://")) outbound = parseVmess(link);
-            else if (link.startsWith("ss://")) outbound = parseShadowsocks(link);
-            else continue; // unsupported protocol is NOT a direct fallback
+            try {
+                if (link.startsWith("vless://")) outbound = parseVless(link);
+                else if (link.startsWith("trojan://")) outbound = parseTrojan(link);
+                else if (link.startsWith("vmess://")) outbound = parseVmess(link);
+                else if (link.startsWith("ss://")) outbound = parseShadowsocks(link);
+                else if (link.startsWith("hy2://") || link.startsWith("hysteria2://"))
+                    outbound = parseHysteria2(link);
+                else if (link.startsWith("tuic://")) outbound = parseTuic(link);
+                else continue;
+            } catch (Exception unsupportedNode) {
+                // One bad link must not discard every valid proxy in a provider's
+                // subscription. If none work, the importer reports an error.
+                continue;
+            }
             outbound.put("tag","node-"+row);
             outbounds.add(outbound);
         }
         if (outbounds.isEmpty())
-            throw new Exception("No supported proxy nodes. Import a full sing-box JSON config or a VLESS/Trojan/VMess/SS subscription.");
+            throw new Exception("NO_SUPPORTED_PROXY_NODES");
         return build(outbounds);
+    }
+
+    private static String parseJsonSubscription(String text) throws Exception {
+        JSONObject root = new JSONObject(text);
+        JSONArray out = root.optJSONArray("outbounds");
+        if (out == null) throw new Exception("JSON_NO_OUTBOUNDS");
+        List<JSONObject> accepted = new ArrayList<>();
+        for (int i=0; i<out.length() && accepted.size()<MAX_NODES; i++) {
+            JSONObject item=out.optJSONObject(i);
+            if (item==null)continue;
+            String type=item.optString("type","");
+            if (!("vless".equals(type) || "vmess".equals(type) ||
+                "trojan".equals(type) || "shadowsocks".equals(type) ||
+                "hysteria2".equals(type) || "tuic".equals(type)))
+                continue;
+            JSONObject copy=new JSONObject(item.toString());
+            copy.put("tag","node-"+(accepted.size()+1));
+            accepted.add(copy);
+        }
+        // Never trust provider route rules, direct outbounds or bypass policies.
+        // Keep only recognized secure upstreams and construct a clean TUN.
+        if (accepted.isEmpty()) throw new Exception("JSON_HAS_NO_SUPPORTED_PROXY");
+        return build(accepted);
+    }
+
+    private static JSONObject parseHysteria2(String link) throws Exception {
+        URI u = new URI(link.replaceFirst("^hy2:", "hysteria2:"));
+        validEndpoint(u.getHost(), u.getPort());
+        Map<String,String> q=params(u.getRawQuery());
+        JSONObject out=new JSONObject().put("type","hysteria2")
+            .put("server",u.getHost()).put("server_port",u.getPort())
+            .put("password",decode(u.getRawUserInfo()));
+        out.put("tls",new JSONObject().put("enabled",true)
+            .put("server_name",q.getOrDefault("sni",u.getHost())));
+        return out;
+    }
+
+    private static JSONObject parseTuic(String link) throws Exception {
+        URI u=new URI(link);
+        validEndpoint(u.getHost(),u.getPort());
+        String pair=decode(u.getRawUserInfo());
+        int sep=pair.indexOf(':');
+        if(sep<0)throw new Exception("TUIC credentials missing");
+        Map<String,String> q=params(u.getRawQuery());
+        return new JSONObject().put("type","tuic").put("server",u.getHost())
+            .put("server_port",u.getPort()).put("uuid",pair.substring(0,sep))
+            .put("password",pair.substring(sep+1))
+            .put("congestion_control",q.getOrDefault("congestion_control","bbr"))
+            .put("tls",new JSONObject().put("enabled",true)
+                .put("server_name",q.getOrDefault("sni",u.getHost())));
     }
 
     private static JSONObject tls(String server, Map<String,String> q) throws Exception {

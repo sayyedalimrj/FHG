@@ -38,6 +38,14 @@ jobs:
           $job=Start-Process -FilePath $base -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$dest))
           if ($job.ExitCode -ne 0) { throw 'Extraction failed' }
           Copy-Item updated/FHGLogin.exe (Join-Path $dest 'FHGLogin.exe') -Force
+          # FHG.exe normally rewrites the policy on first launch. The offline
+          # CI probe skips FHG.exe, so reproduce this step explicitly.
+          $xpi=Join-Path $dest 'Firefox/distribution/fhg-authenticator.xpi'
+          $policyFile=Join-Path $dest 'Firefox/distribution/policies.json'
+          if (!(Test-Path $xpi)) { throw 'Pinned original signed addon missing' }
+          $json=Get-Content $policyFile -Raw | ConvertFrom-Json
+          $json.policies.ExtensionSettings.'authenticator@mymindstorm'.install_url=([System.Uri]::new($xpi)).AbsoluteUri
+          $json | ConvertTo-Json -Depth 25 | Set-Content $policyFile -Encoding utf8
           Set-Content -Path fhg-stage-path.txt -Value $dest -NoNewline
       - name: Diagnose Firefox chrome-context extension API on synthetic profile
         shell: pwsh

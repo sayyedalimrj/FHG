@@ -286,7 +286,7 @@ public final class MainActivity extends Activity {
         add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
         add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
         add(root,advancedPanel,-2,7);
-        add(root,label("FHG Secure 1.0 RC4  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
+        add(root,label("FHG Secure 1.0 RC5  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
     }
 
     private void loadAccounts(){

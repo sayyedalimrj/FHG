@@ -4,173 +4,181 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.net.LinkProperties;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.system.OsConstants;
 import android.util.Log;
-import android.os.Process;
 
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.NetworkInterface;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import io.nekohasekai.libbox.BridgeOptions;
+import io.nekohasekai.libbox.BridgeSession;
+import io.nekohasekai.libbox.CommandServer;
+import io.nekohasekai.libbox.CommandServerHandler;
+import io.nekohasekai.libbox.ConnectionOwner;
+import io.nekohasekai.libbox.InterfaceUpdateListener;
+import io.nekohasekai.libbox.Libbox;
+import io.nekohasekai.libbox.LocalDNSTransport;
+import io.nekohasekai.libbox.NeighborUpdateListener;
+import io.nekohasekai.libbox.NetworkInterfaceIterator;
+import io.nekohasekai.libbox.OverrideOptions;
+import io.nekohasekai.libbox.PlatformInterface;
+import io.nekohasekai.libbox.PlatformUser;
+import io.nekohasekai.libbox.RoutePrefix;
+import io.nekohasekai.libbox.RoutePrefixIterator;
+import io.nekohasekai.libbox.SetupOptions;
+import io.nekohasekai.libbox.ShellSession;
+import io.nekohasekai.libbox.StringIterator;
+import io.nekohasekai.libbox.SystemProxyStatus;
+import io.nekohasekai.libbox.TunOptions;
+import io.nekohasekai.libbox.WIFIState;
+
 /**
- * Integrated sing-box TUN runtime. ALL internet packet handling is delegated
- * to the pinned GPLv3 libbox AAR; this Java bridge does NOT implement VPN
- * cryptography or pretend that a VpnService Builder forwards packets.
+ * Actual, strongly-typed libbox 1.14.4 bridge. It MUST compile against the
+ * pinned AAR's Java interfaces. Never fake an established VPN or silently
+ * fall back to a direct route when libbox fails.
  *
- * Reflection is used deliberately to isolate gomobile API compatibility and
- * fail with a visible error if any essential interface is missing.
- * No silent direct-network fallback is possible from this service.
+ * Native TUN establishment proves only a VPN interface exists, NOT server
+ * reachability. Browser access is gated separately by a tunneled HTTPS test.
  */
-public final class EmbeddedVpnService extends VpnService {
+public final class EmbeddedVpnService extends VpnService
+        implements PlatformInterface, CommandServerHandler {
     public static final String ACTION_CONNECT = "com.fhg.android.START_VPN";
     public static final String ACTION_DISCONNECT = "com.fhg.android.STOP_VPN";
     private static final String CHANNEL = "fhg-vpn";
-    private static final int NOTIFICATION = 1702;
-    private static final String TAG = "FHG-VPN";
-    private static final AtomicBoolean ESTABLISHED = new AtomicBoolean(false);
+    private static final int NOTIFICATION_ID = 1702;
+    private static final AtomicBoolean TUN_UP = new AtomicBoolean(false);
+    private static final AtomicBoolean VERIFIED = new AtomicBoolean(false);
     private static final AtomicBoolean STARTING = new AtomicBoolean(false);
-    private Object server;
-    private Object handler;
-    private ParcelFileDescriptor tunnel;
-    private Thread worker;
+    private static volatile String state = "STOPPED";
+    private static volatile String error = "";
+    private static final String TAG = "FHG-VPN";
+
+    private CommandServer commandServer;
+    private ParcelFileDescriptor tunFd;
     private volatile boolean stopping;
+    private ConnectivityManager cm;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private InterfaceUpdateListener interfaceListener;
+    private Thread startWorker;
+    private Thread verifyWorker;
 
-    static boolean isEstablished() { return ESTABLISHED.get(); }
-    static boolean isStarting() { return STARTING.get(); }
+    public static boolean isEstablished() { return VERIFIED.get() && TUN_UP.get(); }
+    public static boolean isStarting() { return STARTING.get(); }
+    public static String getState() { return state; }
+    public static String getError() { return error; }
 
-    private static Object invoke(Object target, String method, Object... args) throws Exception {
-        Method chosen = null;
-        for (Method candidate: target.getClass().getMethods()) {
-            if (!candidate.getName().equals(method) ||
-                candidate.getParameterCount() != args.length) continue;
-            chosen = candidate; break;
-        }
-        if (chosen == null) throw new NoSuchMethodException(method);
-        try { return chosen.invoke(target,args); }
-        catch (java.lang.reflect.InvocationTargetException error) {
-            Throwable cause = error.getCause();
-            if (cause instanceof Exception) throw (Exception) cause;
-            throw error;
+    private void status(String newState, String newError) {
+        state = newState;
+        error = newError;
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) nm.notify(NOTIFICATION_ID, notification(newState));
         }
     }
-
-    private static Object invokeStatic(Class<?> type, String method, Object... args) throws Exception {
-        for(Method candidate:type.getMethods()) {
-            if(candidate.getName().equals(method) &&
-               candidate.getParameterCount()==args.length) {
-                try { return candidate.invoke(null,args); }
-                catch (java.lang.reflect.InvocationTargetException error) {
-                    Throwable cause=error.getCause();
-                    if(cause instanceof Exception) throw (Exception)cause;
-                    throw error;
-                }
-            }
-        }
-        throw new NoSuchMethodException(type.getName()+"."+method);
-    }
-
-    private static int numeric(Object value) {
-        return value instanceof Number ? ((Number)value).intValue() : 0;
-    }
-
-    private static String value(Object value) { return value == null ? "" : String.valueOf(value); }
 
     @Override public void onCreate() {
         super.onCreate();
-        if (Build.VERSION.SDK_INT>=26) {
-            NotificationChannel channel=new NotificationChannel(
-                CHANNEL,"FHG protected VPN",NotificationManager.IMPORTANCE_LOW);
-            NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            nm.createNotificationChannel(channel);
-        }
+        cm = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm != null && Build.VERSION.SDK_INT >= 26)
+            nm.createNotificationChannel(new NotificationChannel(
+                    CHANNEL, "FHG protected tunnel", NotificationManager.IMPORTANCE_LOW));
     }
 
-    private Notification notification(String state) {
-        Intent open=new Intent(this,MainActivity.class);
-        PendingIntent pending=PendingIntent.getActivity(this,0,open,
-            PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this,CHANNEL)
-            .setContentTitle("FHG • Integrated VPN")
-            .setContentText(state)
+    private Notification notification(String current) {
+        PendingIntent open = PendingIntent.getActivity(this, 0,
+            new Intent(this, MainActivity.class),
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder n = Build.VERSION.SDK_INT >= 26
+            ? new Notification.Builder(this, CHANNEL)
+            : new Notification.Builder(this);
+        return n.setContentTitle("FHG VPN")
+            .setContentText(current.equals("CONNECTED") ? "Protected tunnel verified" :
+                current.equals("STARTING") ? "Starting VPN tunnel" :
+                current.equals("CHECKING") ? "Verifying proxy connectivity" :
+                "VPN disconnected / not ready")
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentIntent(pending)
-            .setOngoing(true)
-            .build();
+            .setOngoing(true).setContentIntent(open).build();
     }
 
-    @Override public int onStartCommand(Intent intent,int flags,int id) {
-        String action = intent==null ? ACTION_CONNECT : intent.getAction();
-        if(ACTION_DISCONNECT.equals(action)){
-            stopTunnel();
-            stopSelf();
-            return START_NOT_STICKY;
+    @Override public int onStartCommand(Intent intent, int flags, int id) {
+        String action = intent == null ? ACTION_CONNECT : intent.getAction();
+        if (ACTION_DISCONNECT.equals(action)) {
+            stopTunnel(); stopSelf(); return START_NOT_STICKY;
         }
-        if(!ACTION_CONNECT.equals(action)) return START_NOT_STICKY;
-        if(prepare(this)!=null) {
-            ESTABLISHED.set(false);
-            stopSelf();
-            return START_NOT_STICKY;
+        if (!ACTION_CONNECT.equals(action) && action != null) return START_NOT_STICKY;
+        if (VpnService.prepare(this) != null) {
+            status("FAILED", "VPN_PERMISSION_REQUIRED");
+            stopSelf(); return START_NOT_STICKY;
         }
-        if(!STARTING.compareAndSet(false,true)) return START_STICKY;
-        stopping=false;
-        ESTABLISHED.set(false);
-        startForeground(NOTIFICATION,notification("Starting encrypted sing-box tunnel…"));
-        worker = new Thread(this::startTunnel,"fhg-libbox-start");
-        worker.start();
-        return START_STICKY; // Android Always-on can restart the service
-    }
-
-    private void startTunnel() {
+        if (!STARTING.compareAndSet(false, true)) return START_STICKY;
+        VERIFIED.set(false);
+        TUN_UP.set(false);
+        stopping = false;
         try {
-            AccountStore store=new AccountStore(this);
-            AccountStore.Account account=store.selected();
-            if(account==null) throw new Exception("No active account");
-            String json=store.loadVpnConfig(account.id);
-            // Reject configs that were corrupted or tampered with since import.
-            VpnConfig.parse(json);
-            ClassLoader loader=getClassLoader();
-            Class<?> libbox=Class.forName("io.nekohasekai.libbox.Libbox",true,loader);
-            Class<?> setupType=Class.forName("io.nekohasekai.libbox.SetupOptions",true,loader);
-            Object setup=setupType.getConstructor().newInstance();
-            invoke(setup,"setBasePath",getNoBackupFilesDir().getAbsolutePath());
-            invoke(setup,"setWorkingPath",getFilesDir().getAbsolutePath());
-            invoke(setup,"setTempPath",getCacheDir().getAbsolutePath());
-            invokeStatic(libbox,"setup",setup);
-            Class<?> platform=Class.forName("io.nekohasekai.libbox.PlatformInterface",true,loader);
-            Class<?> callbacks=Class.forName("io.nekohasekai.libbox.CommandServerHandler",true,loader);
-            handler=Proxy.newProxyInstance(loader,new Class<?>[]{platform,callbacks},
-                (proxy, method, args) -> platformInvoke(method,args));
-            Class<?> serverType=Class.forName("io.nekohasekai.libbox.CommandServer",true,loader);
-            server=serverType.getConstructor(callbacks,platform).newInstance(handler,handler);
-            invoke(server,"start");
-            Class<?> optionsType=Class.forName("io.nekohasekai.libbox.OverrideOptions",true,loader);
-            Object options=optionsType.getConstructor().newInstance();
-            // Never enable autoRedirect or a per-app exception; use full-device
-            // TUN and protect only actual proxy dialer sockets.
-            invoke(server,"startOrReloadService",json,options);
+            startForeground(NOTIFICATION_ID, notification("STARTING"));
+            status("STARTING", "");
+            startWorker = new Thread(this::runEngine, "fhg-libbox-tunnel");
+            startWorker.start();
+        } catch (RuntimeException e) {
+            STARTING.set(false); status("FAILED", "FOREGROUND_SERVICE_ERROR");
+            stopSelf(); return START_NOT_STICKY;
+        }
+        return START_STICKY;
+    }
+
+    private void runEngine() {
+        try {
+            AccountStore.Account active = new AccountStore(this).selected();
+            if (active == null) throw new IllegalStateException("NO_ACTIVE_ACCOUNT");
+            String config = new AccountStore(this).loadVpnConfig(active.id);
+
+            SetupOptions setup = new SetupOptions();
+            setup.setBasePath(getNoBackupFilesDir().getAbsolutePath());
+            setup.setWorkingPath(getFilesDir().getAbsolutePath());
+            setup.setTempPath(getCacheDir().getAbsolutePath());
+            setup.setFixAndroidStack(true);
+            setup.setLogMaxLines(500);
+            setup.setDebug(false);
+            Libbox.setup(setup);
+            // Parse/verify against the precise PINNED native engine first.
+            Libbox.checkConfig(config);
+            commandServer = new CommandServer(this, this);
+            commandServer.start();
+            OverrideOptions options = new OverrideOptions();
+            options.setAutoRedirect(false);
+            commandServer.startOrReloadService(config, options);
+            if (!TUN_UP.get()) throw new IllegalStateException("TUN_NOT_ESTABLISHED");
             STARTING.set(false);
-            if (tunnel == null || !ESTABLISHED.get())
-                throw new IllegalStateException("sing-box did not establish TUN");
-            updateNotification("VPN established • sing-box TUN active");
+            status("CHECKING", "");
+            verifyWorker = new Thread(this::verifyConnectivity, "fhg-tunnel-health");
+            verifyWorker.start();
         } catch (Throwable failure) {
-            // Exception messages may include config URLs, credentials or IP.
-            // Never log them or present them in a world-readable notification.
-            Log.e(TAG,"Embedded VPN unavailable: "+failure.getClass().getSimpleName());
+            // Do NOT log the exception message, configs may contain secrets.
+            String category = "LIBBOX_START_ERROR";
+            if (failure instanceof java.io.FileNotFoundException)
+                category = "PROFILE_MISSING";
+            else if (failure instanceof IllegalStateException &&
+                    "TUN_NOT_ESTABLISHED".equals(failure.getMessage()))
+                category = "TUN_NOT_ESTABLISHED";
+            Log.e(TAG, category + " / " + failure.getClass().getSimpleName());
+            status("FAILED", category);
             stopTunnel();
             stopSelf();
         } finally {
@@ -178,160 +186,245 @@ public final class EmbeddedVpnService extends VpnService {
         }
     }
 
-    private void updateNotification(String state) {
-        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE))
-            .notify(NOTIFICATION,notification(state));
-    }
-
-    private Object platformInvoke(Method method,Object[] input) throws Exception {
-        String m=method.getName();
-        Object[] args=input==null?new Object[0]:input;
-        switch(m) {
-            case "toString": return "FHG Android VPN platform";
-            case "hashCode": return System.identityHashCode(this);
-            case "equals": return args.length>0 && args[0]==this;
-            case "usePlatformAutoDetectInterfaceControl": return true;
-            case "autoDetectInterfaceControl":
-                if(args.length>0 && !protect(numeric(args[0])))
-                    throw new SecurityException("Dialer socket protect failed");
-                return null;
-            case "openTun": return openTun(args[0]);
-            case "usePlatformShell":
-            case "usePlatformAutoRedirect":
-            case "usePlatformBridge":
-            case "includeAllNetworks":
-            case "underNetworkExtension": return false;
-            case "clearDNSCache":
-            case "registerMyInterface":
-            case "closeNeighborMonitor":
-            case "startNeighborMonitor":
-            case "startDefaultInterfaceMonitor":
-            case "closeDefaultInterfaceMonitor":
-            case "sendNotification":
-            case "cancelNotification":
-            case "writeDebugMessage": return null;
-            case "getInterfaces":
-                return interfaceIterator(method.getReturnType());
-            case "readWIFIState":
-            case "localDNSTransport":
-            case "getSystemProxyStatus":
-            case "lookupUser":
-            case "lookupFSSHHostKey":
-            case "lookupFSSHHostKeys":
-                return null;
-            case "underNetworkExtension2": return false;
-            case "findConnectionOwner":
-                return null;
-            case "usePlatformAutoDetectInterfaceControlV2": return true;
-            case "setSystemProxyEnabled": return null;
-            case "connectSSHAgent":
-            case "triggerNativeCrash": return -1;
-            case "serviceReload": return null;
-            case "serviceStop":
-                stopSelf();
-                return null;
-            default:
-                if(method.getReturnType()==Boolean.TYPE) return false;
-                if(method.getReturnType()==Integer.TYPE) return 0;
-                if(method.getReturnType()==Long.TYPE) return 0L;
-                return null;
+    private void verifyConnectivity() {
+        // An established TUN by itself is not evidence of a usable proxy.
+        // The HTTPS probe goes through normal Android routing, never protect().
+        int attempts = 0;
+        while (!stopping && attempts++ < 12) {
+            HttpURLConnection connection = null;
+            try {
+                Thread.sleep(1800);
+                if (!TUN_UP.get()) return;
+                connection = (HttpURLConnection)new URL(
+                    "https://cp.cloudflare.com/generate_204").openConnection();
+                connection.setConnectTimeout(6500);
+                connection.setReadTimeout(6500);
+                connection.setUseCaches(false);
+                connection.setInstanceFollowRedirects(false);
+                int response = connection.getResponseCode();
+                if (response == 204 && !stopping && TUN_UP.get()) {
+                    VERIFIED.set(true);
+                    status("CONNECTED", "");
+                    return;
+                }
+            } catch (Exception ignored) {
+                // Report only that the server cannot yet be reached.
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+            status("CHECKING", "PROXY_NOT_REACHABLE");
+        }
+        if (!stopping) {
+            VERIFIED.set(false);
+            status("FAILED", "PROXY_NOT_REACHABLE");
+            stopTunnel();
+            stopSelf();
         }
     }
 
-    /**
-     * Android network interface snapshots for sing-box interface selection.
-     * The native library decides the preferred outgoing interface. The
-     * strict TUN rule and protected sockets remain mandatory.
-     */
-    private Object interfaceIterator(Class<?> iteratorClass) throws Exception {
-        List<Object> values=new ArrayList<>();
-        Enumeration<NetworkInterface> all=NetworkInterface.getNetworkInterfaces();
-        Class<?> classType=Class.forName("io.nekohasekai.libbox.NetworkInterface");
-        while(all!=null && all.hasMoreElements()) {
-            NetworkInterface ni=all.nextElement();
-            if(ni.isLoopback() || !ni.isUp())continue;
-            Object data=classType.getConstructor().newInstance();
-            invoke(data,"setName",ni.getName());
-            invoke(data,"setIndex",ni.getIndex());
-            try { invoke(data,"setMtu",ni.getMTU()); } catch(Exception ignored){}
-            values.add(data);
+    @Override public void autoDetectInterfaceControl(int fd) throws Exception {
+        if (!protect(fd)) throw new SecurityException("PROXY_SOCKET_NOT_PROTECTED");
+    }
+    @Override public boolean usePlatformAutoDetectInterfaceControl() { return true; }
+    @Override public boolean includeAllNetworks() { return false; }
+    @Override public boolean underNetworkExtension() { return false; }
+    @Override public boolean usePlatformBridge() { return false; }
+    @Override public boolean usePlatformShell() { return false; }
+
+    @Override public int openTun(TunOptions options) throws Exception {
+        if (VpnService.prepare(this) != null)
+            throw new SecurityException("VPN_PERMISSION_REQUIRED");
+        Builder builder = new Builder().setSession("FHG protected VPN");
+        int mtu = options.getMTU();
+        builder.setMtu(mtu >= 1280 && mtu <= 9000 ? mtu : 1500);
+        int ipv4 = putAddresses(builder, options.getInet4Address());
+        int ipv6 = putAddresses(builder, options.getInet6Address());
+        if (ipv4 == 0 && ipv6 == 0)
+            throw new IllegalStateException("INVALID_TUN_ADDRESSES");
+        if (options.getAutoRoute()) {
+            // Full tunnel. Do not allowBypass or exclude any package.
+            if (ipv4 > 0) builder.addRoute("0.0.0.0", 0);
+            if (ipv6 > 0) builder.addRoute("::", 0);
         }
-        final int[] offset={0};
-        return Proxy.newProxyInstance(getClassLoader(),new Class<?>[]{iteratorClass},
-            (proxy,method,args)->{
-                if(method.getName().equals("hasNext"))return offset[0]<values.size();
-                if(method.getName().equals("next"))return values.get(offset[0]++);
-                if(method.getName().equals("len"))return values.size();
-                return null;
-            });
+        if (!Libbox.DNSModeDisabled.equals(options.getDNSMode().getValue())) {
+            StringIterator dns = options.getDNSServerAddress();
+            int count = 0;
+            while (dns != null && dns.hasNext()) {
+                String address = dns.next();
+                if (!address.isEmpty()) { builder.addDnsServer(address); count++; }
+            }
+            if (count == 0) builder.addDnsServer("1.1.1.1");
+        }
+        // No proxy or bypass exclusions. Android Lockdown can enforce device
+        // wide blocking whenever the service isn't connected.
+        tunFd = builder.establish();
+        if (tunFd == null) throw new IllegalStateException("ANDROID_TUN_REJECTED");
+        TUN_UP.set(true);
+        return tunFd.getFd();
     }
 
-    private int openTun(Object options) throws Exception {
-        if(prepare(this)!=null)throw new SecurityException("VPN permission missing");
-        Builder builder=new Builder().setSession("FHG sing-box");
-        int mtu=numeric(invoke(options,"getMtu"));
-        builder.setMtu(mtu>=1280&&mtu<=9000?mtu:1500);
-        int ipv4=addAddresses(builder,invoke(options,"getInet4Address"));
-        int ipv6=addAddresses(builder,invoke(options,"getInet6Address"));
-        if(ipv4==0 && ipv6==0)
-            throw new IllegalStateException("sing-box TUN has no address");
-        // No allowBypass(), no disallowed applications and NO direct fallback.
-        builder.addRoute("0.0.0.0",0);
-        if(ipv6>0) builder.addRoute("::",0);
-        try {
-            Object dns=invoke(options,"getDnsServerAddress");
-            while((Boolean)invoke(dns,"hasNext"))
-                builder.addDnsServer(value(invoke(dns,"next")));
-        } catch(Exception ignored) {
-            builder.addDnsServer("1.1.1.1");
-        }
-        tunnel=builder.establish();
-        if(tunnel==null)throw new IllegalStateException("Android rejected TUN");
-        ESTABLISHED.set(true);
-        return tunnel.getFd();
-    }
-
-    private int addAddresses(Builder builder,Object iterator) throws Exception {
-        int count=0;
-        while((Boolean)invoke(iterator,"hasNext")) {
-            Object cidr=invoke(iterator,"next");
-            String ip=value(invoke(cidr,"getAddress"));
-            int prefix=numeric(invoke(cidr,"getPrefix"));
-            builder.addAddress(ip,prefix);
+    private int putAddresses(Builder builder, RoutePrefixIterator routes) {
+        int count = 0;
+        while (routes != null && routes.hasNext()) {
+            RoutePrefix route = routes.next();
+            builder.addAddress(route.address(), route.prefix());
             count++;
         }
         return count;
     }
 
+    // Interface detection uses physical underlying Wi-Fi/Cellular networks,
+    // not our VPN interface, so sing-box cannot recursively dial itself.
+    @Override public NetworkInterfaceIterator getInterfaces() throws Exception {
+        List<io.nekohasekai.libbox.NetworkInterface> entries = new ArrayList<>();
+        if (cm != null) for (Network network : cm.getAllNetworks()) {
+            NetworkCapabilities cap = cm.getNetworkCapabilities(network);
+            LinkProperties props = cm.getLinkProperties(network);
+            if (cap == null || props == null ||
+                cap.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+            String name = props.getInterfaceName();
+            if (name == null || name.isEmpty()) continue;
+            NetworkInterface physical = NetworkInterface.getByName(name);
+            if (physical == null || !physical.isUp()) continue;
+            io.nekohasekai.libbox.NetworkInterface info =
+                new io.nekohasekai.libbox.NetworkInterface();
+            info.setName(name);
+            info.setIndex(physical.getIndex());
+            info.setMTU(physical.getMTU());
+            info.setFlags(OsConstants.IFF_UP | OsConstants.IFF_RUNNING);
+            info.setType(cap.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                ? Libbox.InterfaceTypeWIFI
+                : cap.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    ? Libbox.InterfaceTypeCellular : Libbox.InterfaceTypeOther);
+            info.setMetered(!cap.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
+            List<String> addresses = new ArrayList<>();
+            for (java.net.InterfaceAddress ia : physical.getInterfaceAddresses()) {
+                if (ia.getAddress() != null)
+                    addresses.add(ia.getAddress().getHostAddress() + "/" + ia.getNetworkPrefixLength());
+            }
+            info.setAddresses(strings(addresses));
+            List<String> dns = new ArrayList<>();
+            for (InetAddress addr : props.getDnsServers()) dns.add(addr.getHostAddress());
+            info.setDNSServer(strings(dns));
+            List<String> gateways = new ArrayList<>();
+            for (android.net.RouteInfo route : props.getRoutes()) {
+                if (route.isDefaultRoute() && route.getGateway() != null)
+                    gateways.add(route.getGateway().getHostAddress());
+            }
+            info.setGateway(strings(gateways));
+            entries.add(info);
+        }
+        return new NetworkInterfaceIterator() {
+            int index = 0;
+            @Override public boolean hasNext() { return index < entries.size(); }
+            @Override public io.nekohasekai.libbox.NetworkInterface next() { return entries.get(index++); }
+        };
+    }
+
+    private static StringIterator strings(List<String> entries) {
+        return new StringIterator() {
+            int pos = 0;
+            @Override public boolean hasNext() { return pos < entries.size(); }
+            @Override public String next() { return entries.get(pos++); }
+            @Override public int len() { return entries.size(); }
+        };
+    }
+
+    @Override public void startDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+        interfaceListener = listener;
+        if (cm == null) return;
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override public void onAvailable(Network n) { notifyUnderlying(); }
+            @Override public void onLost(Network n) { notifyUnderlying(); }
+            @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) { notifyUnderlying(); }
+        };
+        cm.registerDefaultNetworkCallback(networkCallback);
+        notifyUnderlying();
+    }
+
+    private void notifyUnderlying() {
+        InterfaceUpdateListener listener = interfaceListener;
+        if (listener == null || cm == null) return;
+        for (Network n : cm.getAllNetworks()) {
+            NetworkCapabilities c = cm.getNetworkCapabilities(n);
+            LinkProperties p = cm.getLinkProperties(n);
+            if (c == null || p == null || c.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+                continue;
+            try {
+                NetworkInterface ni = NetworkInterface.getByName(p.getInterfaceName());
+                if (ni != null && ni.isUp()) {
+                    listener.updateDefaultInterface(p.getInterfaceName(), ni.getIndex(),
+                            !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+                            false);
+                    return;
+                }
+            } catch (Exception ignored) { }
+        }
+    }
+
+    @Override public void closeDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+        if (cm != null && networkCallback != null)
+            try { cm.unregisterNetworkCallback(networkCallback); } catch (Exception ignored) {}
+        networkCallback = null;
+        interfaceListener = null;
+    }
+
+    @Override public void clearDNSCache() {}
+    @Override public void registerMyInterface(String name) {}
+    @Override public void sendNotification(io.nekohasekai.libbox.Notification notification) {}
+    @Override public void cancelNotification(String identifier, int typeId) {}
+    @Override public void startNeighborMonitor(NeighborUpdateListener listener) {}
+    @Override public void closeNeighborMonitor(NeighborUpdateListener listener) {}
+    @Override public LocalDNSTransport localDNSTransport() { return null; }
+    @Override public WIFIState readWIFIState() { return null; }
+    @Override public ConnectionOwner findConnectionOwner(int protocol, String sourceIp,
+            int sourcePort, String destIp, int destPort) { return null; }
+    @Override public void checkPlatformShell() { throw new UnsupportedOperationException("ROOT_DISABLED"); }
+    @Override public ShellSession openShellSession(PlatformUser user, String cmd,
+            StringIterator environment, String term, int rows, int cols) {
+        throw new UnsupportedOperationException("SHELL_DISABLED");
+    }
+    @Override public BridgeSession createBridge(BridgeOptions options) {
+        throw new UnsupportedOperationException("BRIDGE_DISABLED");
+    }
+    @Override public PlatformUser lookupUser(String id) { return null; }
+    @Override public String lookupSFTPServer() { return ""; }
+    @Override public String readSystemSSHHostKey() { return ""; }
+    @Override public String tailscaleHostname() { return ""; }
+
+    // CommandServerHandler methods: backend never silently toggles a system
+    // proxy or gets a shell without the user's explicit permission.
+    @Override public int connectSSHAgent() { return -1; }
+    @Override public SystemProxyStatus getSystemProxyStatus() { return null; }
+    @Override public void setSystemProxyEnabled(boolean value) {}
+    @Override public void serviceReload() {}
+    @Override public void serviceStop() { stopTunnel(); stopSelf(); }
+    @Override public void triggerNativeCrash() {}
+    @Override public void writeDebugMessage(String message) {}
+
     private synchronized void stopTunnel() {
-        if(stopping) return;
-        stopping=true;
-        ESTABLISHED.set(false);
+        if (stopping) return;
+        stopping = true;
+        VERIFIED.set(false);
+        TUN_UP.set(false);
         STARTING.set(false);
-        if(server!=null) {
-            try { invoke(server,"closeService"); } catch(Exception ignored){}
-            try { invoke(server,"close"); } catch(Exception ignored){}
-            server=null;
+        closeDefaultInterfaceMonitor(interfaceListener);
+        if (commandServer != null) {
+            try { commandServer.closeService(); } catch (Exception ignored) {}
+            try { commandServer.close(); } catch (Exception ignored) {}
+            commandServer = null;
         }
-        if(tunnel!=null) {
-            try { tunnel.close(); } catch(Exception ignored){}
-            tunnel=null;
+        if (tunFd != null) {
+            try { tunFd.close(); } catch (Exception ignored) {}
+            tunFd = null;
         }
+        if (!"FAILED".equals(state)) status("STOPPED", "");
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
-    @Override public void onRevoke() {
-        stopTunnel();
-        stopSelf();
-        super.onRevoke();
-    }
+    @Override public void onRevoke() { stopTunnel(); stopSelf(); super.onRevoke(); }
+    @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
 
-    @Override public void onDestroy() {
-        stopTunnel();
-        super.onDestroy();
-    }
-
-    @Override public IBinder onBind(Intent intent) {
-        return super.onBind(intent);
-    }
+    @Override public IBinder onBind(Intent intent) { return super.onBind(intent); }
 }

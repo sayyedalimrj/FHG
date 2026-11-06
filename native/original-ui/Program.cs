@@ -251,20 +251,10 @@ internal static class Program
             bool localBootstrapAvailable = System.Net.NetworkInformation.IPGlobalProperties
                 .GetIPGlobalProperties().GetActiveTcpListeners().Any(endpoint =>
                     endpoint.Port == 12334 && IPAddress.IsLoopback(endpoint.Address));
-            if (localBootstrapAvailable)
+            if (localBootstrapAvailable && ProxyAutomation.BootstrapConsent())
             {
-                var choice = MessageBox.Show(
-                    "An existing local proxy is listening on 127.0.0.1:12334.\n\n" +
-                    "Use it ONLY to import/update FHG Proxy subscriptions while FHG is not connected?\n" +
-                    "Subscription download URLs may include private credentials; only select Yes if this is YOUR trusted proxy.\n\n" +
-                    "After FHG Proxy connects, normal FHG traffic uses 127.0.0.1:12345.",
-                    ProductName + " - optional subscription bootstrap",
-                    MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-                if (choice == DialogResult.Yes)
-                {
-                    childInfo.Environment["FHG_BOOTSTRAP_HTTP_PROXY"] = "127.0.0.1:12334";
-                    Log("User opted in to existing loopback subscription bootstrap at port 12334.");
-                }
+                childInfo.Environment["FHG_BOOTSTRAP_HTTP_PROXY"] = "127.0.0.1:12334";
+                Log("Previously approved local subscription bootstrap enabled.");
             }
             if (AccountPaths.ActiveId is string id)
             {

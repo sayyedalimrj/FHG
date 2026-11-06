@@ -6,7 +6,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 
 /**
- * Browser-level fail-closed gate. This is NOT a replacement for Android's
+ * Browser-level fail-closed gate bound to FHG's OWN integrated VPN.\n * This is NOT a replacement for Android's
  * system VPN Lockdown. The user must enable Always-on VPN and
  * Block connections without VPN for Hiddify in Android system settings.
  * Every web session is closed when the active VPN is lost.
@@ -20,7 +20,7 @@ final class NetworkGate {
         Network network = cm.getActiveNetwork();
         if (network == null) return false;
         NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-        return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        return EmbeddedVpnService.isEstablished() && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
                 && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
     }
 }

@@ -11,10 +11,16 @@ final class DiagnosticReport {
     private DiagnosticReport() {}
 
     static String collect(Context context, boolean profilePresent) {
-        return format(Build.VERSION.SDK_INT, Build.VERSION.RELEASE,
+        String result=format(Build.VERSION.SDK_INT, Build.VERSION.RELEASE,
             EmbeddedVpnService.getState(),
             safeError(EmbeddedVpnService.getError()),
             profilePresent, NetworkGate.vpnActive(context));
+        android.content.SharedPreferences prefs=context.getSharedPreferences(
+            "fhg-vpn-state",Context.MODE_PRIVATE);
+        return result+"Previous startup unfinished: "+
+            prefs.getBoolean("startup_pending",false)+"\n"+
+            "Last startup phase: "+
+            safeError(prefs.getString("last_stage","NONE"))+"\n";
     }
 
     static String safeError(String error) {
@@ -30,7 +36,7 @@ final class DiagnosticReport {
         if (osVersion == null || !osVersion.matches("[0-9.]{1,20}"))
             osVersion="unknown";
         return "FHG Secure / VPN diagnostics\n"
-            + "Release: 1.0.0-rc.2\n"
+            + "Release: 1.0.0-rc.3\n"
             + "Android API: " + sdk + "\n"
             + "Android version: " + osVersion + "\n"
             + "ABI: arm64-v8a\n"

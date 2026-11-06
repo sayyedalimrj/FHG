@@ -180,83 +180,23 @@ internal static class Program
                 return 5;
             }
             Directory.CreateDirectory(ProfileDir);
-            // Original signed extension sync now runs inside Firefox via its
-            // own storage API; do not modify private databases before launch.
-            InstallChatGptStartTile();
-            // Attempt credential-based login in the same isolated profile
-            // BEFORE regular Firefox starts. W3C WebDriver is closed when
-            // finished; the dedicated browser then opens normally. The
-            // existing signed Authenticator and all Hiddify binaries remain
-            // unchanged. A provider CAPTCHA/SSO challenge stays manual.
-            // A real session is mandatory before normal Firefox starts.
-            // The login helper owns the SAME protected browser while the
-            // user handles password, CAPTCHA, 2FA or SSO interactively.
-            string? activeLoginId=AccountPaths.ActiveId;
-            if (activeLoginId == null)
+            // Entirely manual sign-in. No geckodriver, FHGLogin helper,
+            // synthetic Continue clicks, CAPTCHA polling or browser handoff.
+            // Firefox itself offers to save credentials after user sign-in.
+            if (!EnsureFirefoxPasswordSavingDefaults())
             {
-                Warn("Choose a saved account before starting ChatGPT.");
+                Warn("Firefox password-saving policy could not be prepared. " +
+                     "Your existing account and profile were not modified.");
+                return 17;
+            }
+            var activeId = AccountPaths.ActiveId;
+            if (activeId == null)
+            {
+                Warn("Select a saved FHG account before opening Firefox.");
                 return 14;
             }
-            // Cloudflare verification under WebDriver can loop indefinitely.
-            // Exit code 23 requests ONE handoff to ordinary, non-automated
-            // Firefox, reusing the same isolated profile and its cookies.
-            int loginResult=RunAutomaticChatGptLogin(activeLoginId);
-            if (loginResult != 0 && loginResult != 23)
-            {
-                if (loginResult != 21)
-                    Warn("ChatGPT login was NOT verified. No normal Firefox window " +
-                         "was opened. Your account and profile are preserved. " +
-                         "Review the status in FHG Accounts and local diagnostics.");
-                return loginResult == 21 ? 0 : 16;
-            }
-            if (loginResult == 23)
-                Log("Provider security check: opening normal Firefox for user-driven verification.");
-            // WebDriver owns a TEMPORARY Firefox window and closes that
-            // window when its session ends. Allow its profile lock to release
-            // before starting the separate, long-lived user window.
-            Thread.Sleep(3500);
-            var browser = new ProcessStartInfo(FirefoxExe)
-            {
-                WorkingDirectory = FirefoxDir,
-                UseShellExecute = false
-            };
-            browser.ArgumentList.Add("-no-remote");
-            browser.ArgumentList.Add("-profile");
-            browser.ArgumentList.Add(ProfileDir);
-            // If automation could not finish, open the EXACT /login URL
-            // supplied by the user, not the homepage or /auth/login.
-            browser.ArgumentList.Add(loginResult == 0
-                ? "https://chatgpt.com/"
-                : "https://chatgpt.com/login");
-
-            // A just-closed WebDriver session can briefly leave Firefox's
-            // profile locked. Retry only early process exits, never delete
-            // a profile or kill an unrelated Firefox process.
-            for (int attempt = 1; attempt <= 6; attempt++)
-            {
-                using var firefox = Process.Start(browser);
-                if (firefox != null && !firefox.WaitForExit(1400))
-                {
-                    // Manual browser handoff is NOT a claim of successful
-                    // authentication. Leave that judgment with the user.
-                    try { LoginProgress.Write(activeLoginId,
-                        loginResult == 0 ? "SUCCESS" : "MANUAL_BROWSER"); }
-                    catch { }
-                    Log(loginResult == 0
-                        ? "Normal Firefox started after verified login."
-                        : "Normal Firefox started for manual security verification.");
-                    return 0;
-                }
-                Log("FHG user-facing Firefox exited on attempt " + attempt + "; retrying safely.");
-                Thread.Sleep(2000 * attempt);
-            }
-            try { LoginProgress.Write(activeLoginId, "HANDOFF_FAILED"); } catch { }
-            Warn((loginResult == 0
-                ? "ChatGPT login was verified, but "
-                : "A manual security check is pending, but ") +
-                 "normal Firefox could not stay open. Your account and " +
-                 "private profile have NOT been deleted. Review the FHG diagnostic log.");
-            return 7;
+            InstallChatGptStartTile();
+            return OpenOneNativeFirefox(activeId);
         }
         catch (Exception ex)
         {
@@ -505,43 +445,124 @@ internal static class Program
         }
     }
 
-    private static int RunAutomaticChatGptLogin(string accountId)
+    private static bool EnsureFirefoxPasswordSavingDefaults()
     {
-        string exe = Path.Combine(Root, "FHGLogin.exe");
-        string driver = Path.Combine(Root, "WebDriver", "geckodriver.exe");
-        if (!File.Exists(exe) || !File.Exists(driver))
-        {
-            Log("FHG login helper unavailable; no unverified normal browser handoff.");
-            return 30;
-        }
         try
         {
-            var info = new ProcessStartInfo(exe)
+            string path = Path.Combine(FirefoxDir, "distribution", "policies.json");
+            var node = JsonNode.Parse(File.ReadAllText(path));
+            if (node?["policies"] is not JsonObject policies) return false;
+            // Only offer to save credentials by DEFAULT: the user remains
+            // free to decline the Save prompt or disable the feature.
+            // Never inject DPAPI secrets into login databases, policies or JS.
+            bool changed = false;
+            if (policies["OfferToSaveLoginsDefault"]?.ToJsonString() != "true")
             {
-                WorkingDirectory = Root,
-                UseShellExecute = false,
-                CreateNoWindow = true
-                // No redirected output: the user may take as long as needed
-                // to solve a CAPTCHA, and helper state is written to the
-                // non-secret per-account progress file.
-            };
-            info.ArgumentList.Add("--account");
-            info.ArgumentList.Add(accountId);
-            using var login = Process.Start(info);
-            if (login == null) return 30;
-            // No absolute timeout or Kill: the user explicitly decides when
-            // to cancel. The browser must not close on an intermediate stage.
-            login.WaitForExit();
-            Log("ChatGPT login helper finished: " +
-                (login.ExitCode == 0 ? "VERIFIED_SUCCESS" :
-                 login.ExitCode == 21 ? "USER_CANCELED" : "UNVERIFIED"));
-            return login.ExitCode;
+                policies["OfferToSaveLoginsDefault"] = true;
+                changed = true;
+            }
+            if (policies["OfferToSaveLogins"]?.ToJsonString() == "false")
+            {
+                policies.Remove("OfferToSaveLogins");
+                changed = true;
+            }
+            if (policies["PasswordManagerEnabled"]?.ToJsonString() == "false")
+            {
+                // An old policy must not block Firefox's own password UI.
+                policies["PasswordManagerEnabled"] = true;
+                changed = true;
+            }
+            if (changed)
+                File.WriteAllText(path, node.ToJsonString(new JsonSerializerOptions {
+                    WriteIndented = true
+                }));
+            return VerifyFirefoxPolicy();
         }
         catch (Exception e)
         {
-            Log("FHG login helper failed (" + e.GetType().Name + ").");
-            return 30;
+            Log("Firefox password manager policy unavailable (" + e.GetType().Name + ").");
+            return false;
         }
+    }
+
+    private static bool IsProfileInUse(string profile)
+    {
+        // Firefox holds a native handle on parent.lock while its profile is
+        // running. Never delete this lock: doing so can corrupt the session.
+        string path = Path.Combine(profile, "parent.lock");
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open,
+                FileAccess.Read, FileShare.None);
+            return false; // stale unlocked file: safe to let Firefox decide
+        }
+        catch (IOException) { return true; }
+        catch (UnauthorizedAccessException) { return true; }
+    }
+
+    private static int OpenOneNativeFirefox(string accountId)
+    {
+        // One launcher per account at a time. Repeated clicks must never
+        // produce fresh auth tabs or attempt to steal another profile's lock.
+        using var mutex = new Mutex(false, @"Local\FHG_Firefox_" + accountId);
+        bool acquired = false;
+        try
+        {
+            try { acquired = mutex.WaitOne(0); }
+            catch (AbandonedMutexException) { acquired = true; }
+            if (!acquired)
+            {
+                Log("Firefox launcher already active for selected FHG account.");
+                return 0;
+            }
+            if (IsProfileInUse(ProfileDir))
+            {
+                Log("Firefox is already open with the selected profile; no duplicate tab.");
+                try { LoginProgress.Write(accountId, "MANUAL_FIREFOX"); } catch { }
+                return 0;
+            }
+            var info = new ProcessStartInfo(FirefoxExe)
+            {
+                WorkingDirectory = FirefoxDir,
+                UseShellExecute = false
+            };
+            info.ArgumentList.Add("-no-remote");
+            info.ArgumentList.Add("-profile");
+            info.ArgumentList.Add(ProfileDir);
+            info.ArgumentList.Add("https://chatgpt.com/login");
+            using var firefox = Process.Start(info);
+            if (firefox == null)
+            {
+                Log("Native Firefox launch failed.");
+                return 7;
+            }
+            try { LoginProgress.Write(accountId, "MANUAL_FIREFOX"); } catch { }
+            // Never retry browser startup or add further login tabs.
+            // Child/helper startup can exit quickly while Firefox remains
+            // alive, so accept an existing locked profile as success.
+            if (firefox.WaitForExit(2500))
+            {
+                if (IsProfileInUse(ProfileDir))
+                {
+                    Log("Firefox profile is active in an existing process.");
+                    return 0;
+                }
+                Log("Native Firefox exited immediately without an active profile.");
+                return 7;
+            }
+            Log("Native Firefox launched; login and Firefox Save Password prompt are user-driven.");
+            // Keep per-account mutex owned until Firefox exits, preventing
+            // repeated Start clicks from spawning additional login tabs.
+            firefox.WaitForExit();
+            return 0;
+        }
+        catch (Exception e)
+        {
+            Log("Native Firefox error type: " + e.GetType().Name);
+            return 7;
+        }
+        finally { if (acquired) mutex.ReleaseMutex(); }
     }
 
     private static void InstallChatGptStartTile()

@@ -115,7 +115,7 @@ internal static class Program
 
     private static void Report(FhgAccount a, LoginProgressWindow ui, string code)
     {
-        LoginProgress.Write(a.Id, code);
+        try { LoginProgress.Write(a.Id, code); } catch (IOException) { }
         ui.Set(LoginProgress.Display(code));
         Console.WriteLine("FHG_LOGIN_STAGE:" + code);
     }
@@ -147,7 +147,7 @@ internal static class Program
             try { uri = browser.CurrentUri(); lost = 0; }
             catch (InvalidOperationException)
             {
-                if (++lost >= 12) { Report(account, ui, "ERROR"); return 30; }
+                if (++lost >= 120) { Report(account, ui, "ERROR"); return 30; }
                 continue;
             }
             LoginStage stage = TrustedLoginPage.Classify(uri);

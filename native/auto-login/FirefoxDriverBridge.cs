@@ -143,6 +143,13 @@ internal sealed class FirefoxDriverBridge : IDisposable
         return Request(HttpMethod.Post, PathFor("execute/async"), new { script, args });
     }
 
+    // Keep typed record arrays as ONE WebDriver script argument.
+    // Otherwise C# params covariance expands T[] into separate arguments,
+    // and an extension script expecting one array receives one object instead.
+    public JsonElement ExecuteAsyncScript<T>(string script, T[] records)
+        where T : class =>
+        ExecuteAsyncScript(script, (object)records);
+
     public Uri? CurrentUri()
     {
         static Uri? Decode(JsonElement value) =>

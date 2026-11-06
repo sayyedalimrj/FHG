@@ -78,6 +78,17 @@ public final class EmbeddedVpnService extends VpnService
     private Thread startWorker;
     private Thread verifyWorker;
 
+    // Persist redacted startup phase across OS/native process termination.
+    private void startupPhase(String phase) {
+        getSharedPreferences("fhg-vpn-state",MODE_PRIVATE).edit()
+            .putBoolean("startup_pending",true)
+            .putString("last_stage",phase).commit();
+    }
+    private void startupFinished() {
+        getSharedPreferences("fhg-vpn-state",MODE_PRIVATE).edit()
+            .putBoolean("startup_pending",false).commit();
+    }
+
     public static boolean isEstablished() { return VERIFIED.get() && TUN_UP.get(); }
     public static boolean isTunnelUp() { return TUN_UP.get(); }
     public static boolean isStarting() { return STARTING.get(); }
@@ -136,11 +147,13 @@ public final class EmbeddedVpnService extends VpnService
         TUN_UP.set(false);
         stopping = false;
         try {
+            startupPhase("FOREGROUND");
             startForeground(NOTIFICATION_ID, notification("STARTING"));
             status("STARTING", "");
             startWorker = new Thread(this::runEngine, "fhg-libbox-tunnel");
             startWorker.start();
         } catch (RuntimeException e) {
+            startupFinished();
             STARTING.set(false); status("FAILED", "FOREGROUND_SERVICE_ERROR");
             stopSelf(); return START_NOT_STICKY;
         }
@@ -152,18 +165,26 @@ public final class EmbeddedVpnService extends VpnService
             AccountStore.Account active = new AccountStore(this).selected();
             if (active == null) throw new IllegalStateException("NO_ACTIVE_ACCOUNT");
             String config = new AccountStore(this).loadVpnConfig(active.id);
+            if(stopping)return;
+            startupPhase("VALIDATING_PROFILE");
 
             // Process-wide libbox setup is shared with offline profile
             // validation, so reconnect cannot reinitialize its Go runtime.
             VpnEngineSetup.validate(this, config);
+            if(stopping)return;
+            startupPhase("NATIVE_SERVER");
             commandServer = new CommandServer(this, this);
             commandServer.start();
+            if(stopping)return;
             OverrideOptions options = new OverrideOptions();
             options.setAutoRedirect(false);
+            startupPhase("NATIVE_TUN_START");
             commandServer.startOrReloadService(config, options);
+            if(stopping)return;
             if (!TUN_UP.get()) throw new IllegalStateException("TUN_NOT_ESTABLISHED");
             STARTING.set(false);
             status("CHECKING", "");
+            startupPhase("TUN_HEALTH_CHECK");
             verifyWorker = new Thread(this::verifyConnectivity, "fhg-tunnel-health");
             verifyWorker.start();
         } catch (Throwable failure) {
@@ -225,6 +246,7 @@ public final class EmbeddedVpnService extends VpnService
                 initialFailures = 0;
                 everConnected = true;
                 VERIFIED.set(true);
+                startupFinished();
                 status("CONNECTED", "");
             } else {
                 failures++;
@@ -269,6 +291,7 @@ public final class EmbeddedVpnService extends VpnService
     @Override public int openTun(TunOptions options) throws Exception {
         if (VpnService.prepare(this) != null)
             throw new SecurityException("VPN_PERMISSION_REQUIRED");
+        startupPhase("ANDROID_ESTABLISH_TUN");
         Builder builder = new Builder().setSession("FHG protected VPN");
         int mtu = options.getMTU();
         builder.setMtu(mtu >= 1280 && mtu <= 9000 ? mtu : 1500);
@@ -441,6 +464,7 @@ public final class EmbeddedVpnService extends VpnService
     private synchronized void stopTunnel() {
         if (stopping) return;
         stopping = true;
+        startupFinished();
         VERIFIED.set(false);
         TUN_UP.set(false);
         STARTING.set(false);

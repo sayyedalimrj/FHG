@@ -59,20 +59,20 @@ public class VpnConfigTest {
     }
 
     @Test public void clashYamlVlessRealityParses() throws Exception {
-        String yaml="proxies:\\n" +
-            "  - name: Frankfurt\\n" +
-            "    type: vless\\n" +
-            "    server: edge.example.org\\n" +
-            "    port: 443\\n" +
-            "    uuid: 123e4567-e89b-12d3-a456-426614174000\\n" +
-            "    tls: true\\n" +
-            "    network: ws\\n" +
-            "    ws-opts:\\n" +
-            "      path: /chat\\n" +
-            "      headers:\\n" +
-            "        Host: cdn.example.org\\n" +
-            "    reality-opts:\\n" +
-            "      public-key: publickeyexample\\n";
+        String yaml="proxies:\n" +
+            "  - name: Frankfurt\n" +
+            "    type: vless\n" +
+            "    server: edge.example.org\n" +
+            "    port: 443\n" +
+            "    uuid: 123e4567-e89b-12d3-a456-426614174000\n" +
+            "    tls: true\n" +
+            "    network: ws\n" +
+            "    ws-opts:\n" +
+            "      path: /chat\n" +
+            "      headers:\n" +
+            "        Host: cdn.example.org\n" +
+            "    reality-opts:\n" +
+            "      public-key: publickeyexample\n";
         JSONObject root = new JSONObject(VpnConfig.parse(yaml));
         JSONObject node = root.getJSONArray("outbounds").getJSONObject(0);
         assertEquals("vless",node.getString("type"));
@@ -82,14 +82,14 @@ public class VpnConfigTest {
     }
 
     @Test public void singboxProfileWithoutTunIsInstalledAsProtectedTun() throws Exception {
-        String input="{\\\"outbounds\\\":[{\\\"type\\\":\\\"direct\\\",\\\"tag\\\":\\\"direct\\\"},"+
-            "{\\\"type\\\":\\\"trojan\\\",\\\"tag\\\":\\\"proxy\\\",\\\"server\\\":\\\"edge.example.org\\\","+
-            "\\\"server_port\\\":443,\\\"password\\\":\\\"test\\\"}],"+
-            "\\\"route\\\":{\\\"final\\\":\\\"direct\\\"}}";
+        String input="{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"},"+
+            "{\"type\":\"trojan\",\"tag\":\"proxy\",\"server\":\"edge.example.org\","+
+            "\"server_port\":443,\"password\":\"test\"}],"+
+            "\"route\":{\"final\":\"direct\"}}";
         JSONObject root=new JSONObject(VpnConfig.parse(input));
         assertEquals("tun",root.getJSONArray("inbounds").getJSONObject(0).getString("type"));
         assertEquals("node-1",root.getJSONObject("route").getString("final"));
-        assertFalse(root.toString().contains("\\\"type\\\":\\\"direct\\\""));
+        assertFalse(root.toString().contains("\"type\":\"direct\""));
     }
 
     @Test public void htmlSubscriptionRejectedClearly() {

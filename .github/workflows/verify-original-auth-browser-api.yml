@@ -4,6 +4,7 @@ on:
     branches: [fix-original-auth-storage-api-20261106]
     paths:
       - native/auto-login/**
+      - native/auto-login-tests/**
       - .github/workflows/verify-original-auth-browser-api.yml
   workflow_dispatch:
 permissions:
@@ -38,6 +39,12 @@ jobs:
           if ($job.ExitCode -ne 0) { throw 'Extraction failed' }
           Copy-Item updated/FHGLogin.exe (Join-Path $dest 'FHGLogin.exe') -Force
           Set-Content -Path fhg-stage-path.txt -Value $dest -NoNewline
+      - name: Diagnose Firefox chrome-context extension API on synthetic profile
+        shell: pwsh
+        run: |
+          $dest=Get-Content fhg-stage-path.txt -Raw
+          python native/auto-login-tests/probe_firefox_extension.py $dest
+          if ($LASTEXITCODE -ne 0) { throw 'Firefox extension API probe failed' }
       - name: Test official Firefox extension storage API with fake TOTP
         shell: pwsh
         run: |

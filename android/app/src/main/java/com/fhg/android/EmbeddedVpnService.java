@@ -79,6 +79,7 @@ public final class EmbeddedVpnService extends VpnService
     private Thread verifyWorker;
 
     public static boolean isEstablished() { return VERIFIED.get() && TUN_UP.get(); }
+    public static boolean isTunnelUp() { return TUN_UP.get(); }
     public static boolean isStarting() { return STARTING.get(); }
     public static String getState() { return state; }
     public static String getError() { return error; }

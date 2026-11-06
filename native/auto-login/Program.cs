@@ -80,21 +80,20 @@ internal static class Program
             var fake = new FhgAccount(dummyId, "test@ci.invalid",
                 "NEVER-A-REAL-PASSWORD", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
                 "https://example.invalid/unused", DateTimeOffset.UtcNow);
-            string first = AuthenticatorUiImporter.Sync(driver, new [] { fake });
-            if (first != "OK:0" && first != "SUBMITTED:1") {
+            string first = OriginalAuthenticatorBrowserSync.Sync(driver, new [] { fake });
+            if (first != "OK:1") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_FIRST_SYNC:" + first);
                 return 54;
             }
-            // TextImport intentionally closes its browser tab on completion.
-            // End the W3C session and reopen the SAME Firefox profile to
-            // verify that the signed extension truly persisted the account.
+            // End the first W3C session and reopen the SAME Firefox profile
+            // to prove the signed extension persisted the synthetic account.
             driver.Dispose();
             Thread.Sleep(1200);
             using var verify = new FirefoxDriverBridge(
                 Path.Combine(Root, "WebDriver", "geckodriver.exe"),
                 Path.Combine(Root, "Firefox", "firefox.exe"),
                 temporaryProfile);
-            string second = AuthenticatorUiImporter.Sync(verify, new [] { fake });
+            string second = OriginalAuthenticatorBrowserSync.Sync(verify, new [] { fake });
             if (second != "OK:0") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
                 return 55;
@@ -113,7 +112,7 @@ internal static class Program
     private static int Execute(FirefoxDriverBridge browser, FhgAccount account)
     {
         try {
-            string result = AuthenticatorUiImporter.Sync(browser, AccountVault.Load());
+            string result = OriginalAuthenticatorBrowserSync.Sync(browser, AccountVault.Load());
             // Only sanitized status strings, never contents, leave this process.
             Console.WriteLine("FHG_ORIGINAL_AUTHENTICATOR:" + result);
         }

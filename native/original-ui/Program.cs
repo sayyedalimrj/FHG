@@ -95,20 +95,16 @@ internal static class Program
                 return 6;
             }
 
-            FirstRunRequest? firstRun = null;
-            if (!proxyOnly)
+            // Both entry points, including --proxy-only, provision the active
+            // account's subscription automatically when it changes.
+            string? suppliedTicket = AccountPaths.ValidateProvisionTicket();
+            FirstRunRequest? firstRun = suppliedTicket == null
+                ? ProxyAutomation.Prepare(null)
+                : new FirstRunRequest(suppliedTicket, suppliedTicket + ".status", "");
+            if (!proxyOnly && firstRun == null &&
+                AccountPaths.ActiveId == null && !FirstRunWizard.Completed)
             {
-                string? suppliedTicket = AccountPaths.ValidateProvisionTicket();
-                if (suppliedTicket != null)
-                {
-                    firstRun = new FirstRunRequest(
-                        suppliedTicket, suppliedTicket + ".status", "");
-                }
-                else if (AccountPaths.ActiveId == null && !FirstRunWizard.Completed)
-                {
-                    // Backward-compatible path for previous portable installs.
-                    firstRun = FirstRunWizard.AskForLocalFile();
-                }
+                firstRun = FirstRunWizard.AskForLocalFile();
             }
 
             if (!StartOfficialHiddify(firstRun))
@@ -116,7 +112,7 @@ internal static class Program
                 if (firstRun is not null) FirstRunWizard.CleanupTicket(firstRun);
                 return 3;
             }
-            if (proxyOnly) return 0;
+            if (proxyOnly && firstRun is null) return 0;
 
             if (firstRun is not null)
             {
@@ -131,7 +127,9 @@ internal static class Program
                          "FHG-Connection-Diagnostic.ps1 from the extracted folder.");
                     return 9;
                 }
+                ProxyAutomation.MarkConfigured();
                 FirstRunWizard.MarkCompleted(firstRun);
+                if (proxyOnly) return 0;
             }
             else if (!WaitForFhgProxyHttps(TimeSpan.FromSeconds(15)))
             {
@@ -214,11 +212,21 @@ internal static class Program
             {
                 if (firstRun is not null)
                 {
-                    Warn("FHG Proxy is already running. To import the one-time subscription, " +
-                         "close only FHG Proxy (not your original Hiddify) and retry.");
-                    return false;
+                    // Restart ONLY the verified FHGProxy executable, never the
+                    // user's existing separate Hiddify process.
+                    Log("FHG account subscription changed; recycling its owned proxy.");
+                    if (!ProxyAutomation.StopForNewSubscription(HiddifyExe))
+                    {
+                        Warn("FHG Proxy could not safely release its reserved ports. " +
+                             "Please check its running processes; ordinary Hiddify was not touched.");
+                        return false;
+                    }
                 }
-                return true;
+                else
+                {
+                    ProxyAutomation.ShowProxyWindow(HiddifyExe);
+                    return true;
+                }
             }
 
             // Do not try to bind a port already used by the user's regular Hiddify.

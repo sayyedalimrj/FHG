@@ -224,6 +224,7 @@ public final class MainActivity extends Activity {
         add(root,advanced,49,14);
         advancedPanel=card();
         advancedPanel.setVisibility(View.GONE);
+        add(advancedPanel,action("اصلاح لینک اشتراک",0xff295577,this::editSubscription),48,0);
         add(advancedPanel,action("به‌روزرسانی اشتراک",0xff295577,()->{
             try{
                 AccountStore.Account a=vault.selected();
@@ -271,7 +272,7 @@ public final class MainActivity extends Activity {
             state.equals("FAILED")?"VPN متصل نیست":"آماده اتصال");
         status.setTextColor(connected?ACCENT:working?0xffffd180:INK);
         caption.setText(connected?"VPN و مسیر HTTPS آزمون شده‌اند؛ مرورگر آماده است.":
-            importing?"اشتراک در حال دانلود و تبدیل به پروفایل sing-box است.":
+            importing?"اشتراک با HTTPS در حال نصب خودکار است؛ دانلود اولیه ممکن است قبل از VPN انجام شود.":
             "تا هنگام تأیید اتصال، دسترسی مرورگر مسدود می‌ماند.");
         power.setText(connected?"قطع اتصال":"اتصال VPN");
         power.setEnabled(!working);
@@ -389,6 +390,32 @@ public final class MainActivity extends Activity {
                 runOnUiThread(()->{importing=false;error(reason);});
             }
         });
+    }
+
+    private void editSubscription(){
+        try{
+            AccountStore.Account a=vault.selected();
+            if(a==null){pickAccount();return;}
+            EditText input=new EditText(this);
+            input.setSingleLine(true);
+            input.setInputType(android.text.InputType.TYPE_CLASS_TEXT |
+                android.text.InputType.TYPE_TEXT_VARIATION_URI);
+            input.setText(a.subscription);
+            input.setSelectAllOnFocus(true);
+            LinearLayout wrapper=new LinearLayout(this);
+            wrapper.setPadding(dp(18),dp(4),dp(18),0);
+            wrapper.addView(input,new LinearLayout.LayoutParams(-1,-2));
+            new AlertDialog.Builder(this).setTitle("لینک مستقیم اشتراک HTTPS")
+                .setMessage("اگر صفحه وب دریافت می‌شود، لینک مستقیم Subscription پنل را وارد کن.")
+                .setView(wrapper)
+                .setPositiveButton("ذخیره و نصب", (dialog,which)->{
+                    try{
+                        vault.updateSubscription(a.id,input.getText().toString());
+                        loadAccounts();
+                        importSubscription(vault.selected(),true);
+                    }catch(Exception e){error("SUBSCRIPTION_HTTPS_REQUIRED");}
+                }).setNegativeButton("انصراف",null).show();
+        }catch(Exception e){error("ACCOUNT_VAULT_ERROR");}
     }
 
     private void importLocal(Uri uri){

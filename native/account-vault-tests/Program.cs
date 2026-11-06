@@ -29,6 +29,11 @@ try {
     if (LoginProgress.Read(a.Id) != "HANDOFF_FAILED") throw new Exception("handoff distinction");
     AccountVault.SetActive(a.Id);
     Check(AccountVault.ActiveId() == a.Id, "active-account selection");
+    // A completed encrypted Firefox import is identified only by a harmless
+    // marker: changing the login invalidates it, subscription changes do not.
+    string importMarker=Path.Combine(AccountVault.Root,a.Id,"firefox-password-imported.v1");
+    Directory.CreateDirectory(Path.GetDirectoryName(importMarker)!);
+    File.WriteAllText(importMarker,"IMPORTED_TO_FIREFOX_NSS_V1");
     string vault = File.ReadAllText(Path.Combine(AccountVault.Root, "vault.dpapi"));
     Check(!vault.Contains(pass) && !vault.Contains(sub) && !vault.Contains(seed),
         "no raw account secret in disk vault");
@@ -40,6 +45,7 @@ try {
     string updatedSub = "https://sub.example.invalid/changed?token=NOT-REAL";
     string updatedPass = "TESTONLY-new-password";
     AccountVault.UpdateAccount(a.Id, updatedName, updatedPass, seed, updatedSub);
+    Check(!File.Exists(importMarker),"new username or password invalidates encrypted Firefox import");
     var changed = AccountVault.Load().Single(x => x.Id == a.Id);
     Check(changed.Label == updatedName && changed.Password == updatedPass &&
           changed.SubscriptionUrl == updatedSub, "edit every account field while preserving ID");

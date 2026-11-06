@@ -3,7 +3,7 @@ name: FHG Android v1 UI VPN security and protocol validation
 on:
   push:
     branches:
-      - android-rc6-professional-dashboard-20261106
+      - android-rc6-1-final-ui-20261106
     paths:
       - 'android/**'
       - '.github/workflows/fhg-android-v1-rc-ci.yml'
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "applicationId 'com.fhg.android.secure.rc6'" android/app/build.gradle
+          grep -q "applicationId 'com.fhg.android.secure.rc61'" android/app/build.gradle
           grep -q 'native-validated profile' android/README.md || true
           grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
@@ -121,24 +121,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-1.0.0-rc6-arm64.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-1.0.0-rc6.1-arm64.apk
           cd dist
-          sha256sum FHG-Android-1.0.0-rc6-arm64.apk > FHG-Android-1.0.0-rc6-arm64.apk.sha256
-          unzip -t FHG-Android-1.0.0-rc6-arm64.apk | tail -2
-          SIZE=$(stat -c%s FHG-Android-1.0.0-rc6-arm64.apk)
+          sha256sum FHG-Android-1.0.0-rc6.1-arm64.apk > FHG-Android-1.0.0-rc6.1-arm64.apk.sha256
+          unzip -t FHG-Android-1.0.0-rc6.1-arm64.apk | tail -2
+          SIZE=$(stat -c%s FHG-Android-1.0.0-rc6.1-arm64.apk)
           # A real reduction vs the verified v0.2.1 universal APK
           # (393,657,988 bytes); no empty or fake APK can pass.
           OLD_SIZE=393657988
           if [ "$SIZE" -lt 1000000 ]; then echo 'APK suspiciously small' >&2; exit 1; fi
           if [ "$SIZE" -ge "$OLD_SIZE" ]; then echo 'ARM64 APK was not smaller than universal build' >&2; exit 1; fi
-          unzip -Z1 FHG-Android-1.0.0-rc6-arm64.apk | grep '^lib/' | grep -v '^lib/arm64-v8a/' && {
+          unzip -Z1 FHG-Android-1.0.0-rc6.1-arm64.apk | grep '^lib/' | grep -v '^lib/arm64-v8a/' && {
             echo 'Non ARM64 native library leaked into APK' >&2; exit 1;
           } || true
-          unzip -Z1 FHG-Android-1.0.0-rc6-arm64.apk | grep -q '^lib/arm64-v8a/'
+          unzip -Z1 FHG-Android-1.0.0-rc6.1-arm64.apk | grep -q '^lib/arm64-v8a/'
           echo "PASS: ARM64-only GeckoView and sing-box APK, old bytes=$OLD_SIZE, new bytes=$SIZE"
           echo "REDUCTION=$(awk -v old="$OLD_SIZE" -v new="$SIZE" 'BEGIN { printf "%.1f", 100*(old-new)/old }')%"
       - uses: actions/upload-artifact@v4
         with:
-          name: FHG-Android-1.0.0-rc6-arm64-APK
-          path: dist/FHG-Android-1.0.0-rc6-arm64.apk*
+          name: FHG-Android-1.0.0-rc6.1-arm64-APK
+          path: dist/FHG-Android-1.0.0-rc6.1-arm64.apk*
           if-no-files-found: error

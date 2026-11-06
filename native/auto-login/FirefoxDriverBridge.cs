@@ -18,6 +18,7 @@ internal sealed class FirefoxDriverBridge : IDisposable
     private readonly HttpClient client;
     private readonly Process service;
     private string? sessionId;
+    private string? originalWindowHandle;
     private bool closed;
 
     public FirefoxDriverBridge(string driverExecutable, string firefoxExecutable, string profile)
@@ -93,6 +94,11 @@ internal sealed class FirefoxDriverBridge : IDisposable
             string.IsNullOrEmpty(field.GetString()))
             throw new InvalidOperationException("WEBDRIVER_SESSION_INVALID");
         sessionId = field.GetString()!;
+        // Capture the original startup tab before signed extensions open
+        // their own temporary setup tabs.
+        var original = Request(HttpMethod.Get, PathFor("window"));
+        originalWindowHandle = original.ValueKind == JsonValueKind.String
+            ? original.GetString() : null;
         // Configure the separate FHG browser's signed timezone add-on before
         // any website is visited. The operating-system clock is untouched.
         string timezoneResult = OriginalTimezoneSync.Apply(this);
@@ -135,6 +141,50 @@ internal sealed class FirefoxDriverBridge : IDisposable
 
     public void GoTo(string url) =>
         Request(HttpMethod.Post, PathFor("url"), new { url });
+
+    // The signed timezone and Authenticator extensions deliberately opened
+    // their preferences/import pages during initialization. Those tabs must
+    // NOT remain visible during login. Keep the original browser tab and
+    // close ONLY the exact addon setup pages introduced by FHG.
+    public void CloseSetupTabsAndNavigate(string url)
+    {
+        if (!string.Equals(url, "https://chatgpt.com/login", StringComparison.Ordinal))
+            throw new ArgumentException("Unsupported login entrypoint", nameof(url));
+        var handles = Request(HttpMethod.Get, PathFor("window/handles"));
+        if (handles.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("WEBDRIVER_NO_WINDOW_HANDLES");
+
+        string? primary = originalWindowHandle;
+        var all = handles.EnumerateArray()
+            .Where(x => x.ValueKind == JsonValueKind.String)
+            .Select(x => x.GetString()).Where(x => !string.IsNullOrEmpty(x)).ToArray();
+        if (all.Length == 0) throw new InvalidOperationException("WEBDRIVER_NO_WINDOWS");
+        if (!all.Contains(primary)) primary = all[0];
+
+        foreach (var candidate in all)
+        {
+            if (candidate == primary) continue;
+            try
+            {
+                Request(HttpMethod.Post, PathFor("window"), new { handle = candidate });
+                var value = Request(HttpMethod.Get, PathFor("url"));
+                string current = value.ValueKind == JsonValueKind.String
+                    ? value.GetString() ?? "" : "";
+                if (Uri.TryCreate(current, UriKind.Absolute, out var u) &&
+                    u.Scheme == "moz-extension" &&
+                    (u.AbsolutePath == "/view/import.html" ||
+                     u.AbsolutePath == "/data/options/index.html"))
+                {
+                    Request(HttpMethod.Delete, PathFor("window"));
+                }
+            }
+            catch (InvalidOperationException) { /* leave unknown tabs intact */ }
+        }
+        Request(HttpMethod.Post, PathFor("window"), new { handle = primary });
+        GoTo(url);
+    }
+
+
 
     public void SetContext(string context)
     {

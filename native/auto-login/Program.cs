@@ -74,7 +74,23 @@ internal static class Program
             driver.Click(button);
             Thread.Sleep(350);
             if (!driver.IsPresent("body[data-test-success='yes']")) return 52;
-            Console.WriteLine("PASS: bundled Firefox + official geckodriver W3C protocol, synthetic form only");
+            // Run a real original-addon storage test against the ephemeral
+            // profile: only fake credentials, no Internet and no user data.
+            string dummyId = Guid.NewGuid().ToString("N");
+            var fake = new FhgAccount(dummyId, "test@ci.invalid",
+                "NEVER-A-REAL-PASSWORD", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+                "https://example.invalid/unused", DateTimeOffset.UtcNow);
+            string first = OriginalAuthenticatorBrowserSync.Sync(driver, new [] { fake });
+            if (first != "OK") {
+                Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_FIRST_SYNC:" + first);
+                return 54;
+            }
+            string second = OriginalAuthenticatorBrowserSync.Sync(driver, new [] { fake });
+            if (second != "OK") {
+                Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
+                return 55;
+            }
+            Console.WriteLine("PASS: bundled Firefox W3C protocol and original Authenticator browser.storage API sync");
             return 0;
         }
         catch (Exception) { return 53; }
@@ -87,6 +103,15 @@ internal static class Program
 
     private static int Execute(FirefoxDriverBridge browser, FhgAccount account)
     {
+        try {
+            string result = OriginalAuthenticatorBrowserSync.Sync(browser, AccountVault.Load());
+            // Only sanitized status strings, never contents, leave this process.
+            Console.WriteLine("FHG_ORIGINAL_AUTHENTICATOR:" + result);
+        }
+        catch (Exception) {
+            Console.WriteLine("FHG_ORIGINAL_AUTHENTICATOR:UNAVAILABLE");
+            // Do not lose browser access if only the 2FA popup failed.
+        }
         var clock = Stopwatch.StartNew();
         var submitted = new System.Collections.Generic.HashSet<LoginStage>();
         var whenSubmitted = TimeSpan.Zero;

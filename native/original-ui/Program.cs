@@ -167,6 +167,13 @@ internal static class Program
                 return 14;
             }
             InstallChatGptStartTile();
+            // Attempt credential-based login in the same isolated profile
+            // BEFORE regular Firefox starts. W3C WebDriver is closed when
+            // finished; the dedicated browser then opens normally. The
+            // existing signed Authenticator and all Hiddify binaries remain
+            // unchanged. A provider CAPTCHA/SSO challenge stays manual.
+            if (AccountPaths.ActiveId is string loginAccountId)
+                RunAutomaticChatGptLogin(loginAccountId);
             var browser = new ProcessStartInfo(FirefoxExe)
             {
                 WorkingDirectory = FirefoxDir,
@@ -437,6 +444,51 @@ internal static class Program
         {
             Log("Original Authenticator Sync failed (" + e.GetType().Name + ").");
             return false;
+        }
+    }
+
+    private static void RunAutomaticChatGptLogin(string accountId)
+    {
+        string exe = Path.Combine(Root, "FHGLogin.exe");
+        string driver = Path.Combine(Root, "WebDriver", "geckodriver.exe");
+        if (!File.Exists(exe) || !File.Exists(driver))
+        {
+            Log("FHG auto-login components missing; opening regular Firefox for manual login.");
+            return;
+        }
+        try
+        {
+            var info = new ProcessStartInfo(exe)
+            {
+                WorkingDirectory = Root,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            // Only the harmless 32-character account identifier is passed
+            // through the process command line. No password or OTP master key.
+            info.ArgumentList.Add("--account");
+            info.ArgumentList.Add(accountId);
+            using var login = Process.Start(info);
+            if (login == null) { Log("Auto-login helper unavailable."); return; }
+            if (!login.WaitForExit(155000))
+            {
+                try { login.Kill(entireProcessTree: true); }
+                catch { }
+                Log("Auto-login reached its safety timeout; Firefox opens for manual continuation.");
+                return;
+            }
+            switch (login.ExitCode)
+            {
+                case 0: Log("Auto-login: recognized authenticated ChatGPT interface."); break;
+                case 22: Log("Auto-login skipped synthetic account or missing real email."); break;
+                case 20: Log("Auto-login could not complete: provider challenge, SSO or unrecognized form."); break;
+                default: Log("Auto-login unavailable; normal Firefox sign-in remains accessible."); break;
+            }
+        }
+        catch (Exception e)
+        {
+            // Do not log account data or server form contents.
+            Log("Auto-login helper error type " + e.GetType().Name);
         }
     }
 

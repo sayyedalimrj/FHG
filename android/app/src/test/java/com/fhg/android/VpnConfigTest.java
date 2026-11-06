@@ -103,4 +103,17 @@ public class VpnConfigTest {
         try { VpnConfig.parse("http://config.example.org"); fail("HTTP scheme is not a VPN node"); }
         catch(Exception expected) {}
     }
+    @Test public void emitFixtureForNativeSingboxParser() throws Exception {
+        String destination=System.getenv("FHG_CONFIG_FIXTURE_DIR");
+        if(destination==null||destination.isEmpty())return;
+        java.nio.file.Path dir=java.nio.file.Paths.get(destination);
+        java.nio.file.Files.createDirectories(dir);
+        String json=VpnConfig.parse(
+            "trojan://test-password@edge.example.org:443?security=tls&sni=edge.example.org");
+        java.nio.file.Files.writeString(dir.resolve("trojan-generated.json"),json);
+        String second=VpnConfig.parse(
+            "vless://123e4567-e89b-12d3-a456-426614174000@edge.example.org:443?security=tls&sni=edge.example.org&type=ws&path=%2Fws");
+        java.nio.file.Files.writeString(dir.resolve("vless-generated.json"),second);
+    }
+
 }

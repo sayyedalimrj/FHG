@@ -244,6 +244,42 @@ internal sealed class FirefoxDriverBridge : IDisposable
     public void Click(string id) =>
         Request(HttpMethod.Post, PathFor("element/" + Uri.EscapeDataString(id) + "/click"), new {});
 
+    // Real WebDriver W3C pointer actions instead of DOM .click(), JS
+    // form.submit(), Enter, or an HTTP request to the auth endpoint.
+    // The pointer moves to the center of the on-screen Continue button,
+    // then presses/releases the primary mouse button like a user click.
+    public void PointerClick(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException("Missing WebDriver element ID", nameof(id));
+        var element = new Dictionary<string, string> { [ElementKey] = id };
+        try
+        {
+            Request(HttpMethod.Post, PathFor("actions"), new
+            {
+                actions = new object[] {
+                    new {
+                        type = "pointer",
+                        id = "fhg-physical-mouse",
+                        parameters = new { pointerType = "mouse" },
+                        actions = new object[] {
+                            new { type = "pointerMove", duration = 350, origin = (object)element, x = 0, y = 0 },
+                            new { type = "pause", duration = 250 },
+                            new { type = "pointerDown", button = 0 },
+                            new { type = "pause", duration = 180 },
+                            new { type = "pointerUp", button = 0 }
+                        }
+                    }
+                }
+            });
+        }
+        finally
+        {
+            try { Request(HttpMethod.Delete, PathFor("actions")); }
+            catch (InvalidOperationException) { /* Browser may have navigated. */ }
+        }
+    }
+
     public void Enter(string id) =>
         Request(HttpMethod.Post, PathFor("element/" + Uri.EscapeDataString(id) + "/value"),
             new { text = "\uE007" });

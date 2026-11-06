@@ -21,9 +21,10 @@ import java.nio.charset.StandardCharsets;
 final class SubscriptionManager {
     private static final int MAX_BYTES = 1_000_000;
     private static final String[] USER_AGENTS = {
-        "sing-box/1.14.4",
-        "clash.meta/1.19.0",
-        "Hiddify-Next/4.1.1"
+        "SFA (sing-box 1.14.4; language en_US)",
+        "ClashMeta/1.19.0",
+        "HiddifyNext/4.1.1",
+        "v2rayNG/1.10.0"
     };
     interface Result {
         void complete(Profile profile);

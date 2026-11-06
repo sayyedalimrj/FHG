@@ -383,7 +383,13 @@ public final class MainActivity extends Activity {
                     lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور  •  "+p.format;
                     lastImportError="";
                     update();
-                    if(connectAfterImport)connectVpn();
+                    if(connectAfterImport){
+                        try {
+                            AccountStore.Account active=vault.selected();
+                            if(active!=null && active.id.equals(account.id))
+                                connectVpn();
+                        }catch(Exception ignored){}
+                    }
                 });
             }
             @Override public void failed(String reason){

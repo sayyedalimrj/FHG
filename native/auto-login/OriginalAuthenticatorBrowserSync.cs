@@ -13,7 +13,7 @@ internal static class OriginalAuthenticatorBrowserSync
     private const string ExtensionId = "authenticator@mymindstorm";
 
     private const string OpenExtensionScript = """
-        const Services = ChromeUtils.importESModule("resource://gre/modules/Services.sys.mjs").Services;
+        // Marionette chrome context already exposes Services on this Firefox.
         const mapping = JSON.parse(Services.prefs.getStringPref("extensions.webextensions.uuids", "{}"));
         const uuid = mapping["authenticator@mymindstorm"];
         if (typeof uuid !== "string" || !/^[0-9a-f-]{36}$/i.test(uuid)) return "";

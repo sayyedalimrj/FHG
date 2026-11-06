@@ -231,6 +231,26 @@ final class AccountStore {
         finally { java.util.Arrays.fill(decoded, (byte)0); }
     }
 
+    synchronized void updateSubscription(String id, String url) throws Exception {
+        java.net.URI uri = new java.net.URI(url.trim());
+        if (!"https".equalsIgnoreCase(uri.getScheme()) ||
+            uri.getHost() == null || uri.getUserInfo() != null ||
+            url.length() > 4096)
+            throw new IllegalArgumentException("HTTPS subscription URL required");
+        ArrayList<Account> all = new ArrayList<>(load());
+        boolean updated = false;
+        for(int i=0;i<all.size();i++){
+            Account old=all.get(i);
+            if(old.id.equals(id)){
+                all.set(i,new Account(id,old.email,old.password,old.totpSecret,url.trim()));
+                updated=true;
+                break;
+            }
+        }
+        if(!updated)throw new IllegalArgumentException("Unknown account ID");
+        save(all); // atomic encrypted update, never touches last valid VPN profile
+    }
+
     synchronized void updatePassword(String id, String password) throws Exception {
         if (password == null || password.isEmpty()) return;
         ArrayList<Account> accounts = new ArrayList<>(load());

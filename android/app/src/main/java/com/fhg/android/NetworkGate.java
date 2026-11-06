@@ -34,9 +34,14 @@ final class NetworkGate {
                 // Only one Android VPN is permitted for a user profile and
                 // our own libbox verifies the TUN. Owner UID can further
                 // discriminate another VPN on Android 10+.
-                if (android.os.Build.VERSION.SDK_INT >= 30 &&
-                    caps.getOwnerUid() != android.os.Process.myUid())
-                    continue;
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    int owner = caps.getOwnerUid();
+                    // Some OEM ROMs return INVALID_UID (-1) even for an
+                    // owned VPN. Native TUN_UP + one VPN/user is still
+                    // mandatory; reject any positively identified other owner.
+                    if (owner >= 0 && owner != android.os.Process.myUid())
+                        continue;
+                }
                 return n;
             }
         } catch (RuntimeException ignored) {}

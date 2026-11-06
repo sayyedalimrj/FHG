@@ -9,7 +9,7 @@ using System.Threading;
 // not a new extension, unsafe page scripts, or an auth API workaround.
 internal static class Program
 {
-    private static readonly TimeSpan TotalLimit = TimeSpan.FromSeconds(135);
+    private static readonly TimeSpan TotalLimit = TimeSpan.FromSeconds(360);
     private static readonly string Root = AppContext.BaseDirectory;
 
     public static int Main(string[] args)
@@ -71,7 +71,7 @@ internal static class Program
             driver.Fill(field, "SYNTHETIC-WINDOWS-CI-ONLY");
             string? button = driver.FindVisible("form button[type='submit']");
             if (button == null) return 51;
-            driver.Click(button);
+            driver.PointerClick(button);
             Thread.Sleep(350);
             if (!driver.IsPresent("body[data-test-success='yes']")) return 52;
             // Run a real original-addon storage test against the ephemeral
@@ -153,13 +153,13 @@ internal static class Program
                 // an upstream access check already decided the destination.
                 // Never hunt for a homepage button: keep the direct /login
                 // entrypoint and let the launcher show it for manual login.
-                if (clock.Elapsed > TimeSpan.FromSeconds(14))
+                if (clock.Elapsed > TimeSpan.FromSeconds(45))
                 {
                     Console.WriteLine("FHG_LOGIN_STAGE:REDIRECTED_HOME_WITHOUT_SESSION");
                     return 20;
                 }
             }
-                        else if (stage == LoginStage.Email)
+            else if (stage == LoginStage.Email)
             {
                 string? email = browser.FindVisible(
                     "form input[name='username'][type='email'], form input[type='email'][autocomplete='email'], form input[type='email']");
@@ -171,7 +171,7 @@ internal static class Program
                     Console.WriteLine("FHG_LOGIN_STAGE:EMAIL_SUBMITTED");
                 }
                 else if (email == null && submitted.Count == 0 &&
-                         clock.Elapsed > TimeSpan.FromSeconds(30))
+                         clock.Elapsed > TimeSpan.FromSeconds(90))
                 {
                     Console.WriteLine("FHG_LOGIN_STAGE:LOGIN_FORM_NOT_RENDERED");
                     return 20;
@@ -212,7 +212,7 @@ internal static class Program
             {
                 // SSO, provider challenge, account recovery, passkeys or UI
                 // changed: leave to the user. Never guess fields or click.
-                if (clock.Elapsed > TimeSpan.FromSeconds(12))
+                if (clock.Elapsed > TimeSpan.FromSeconds(50))
                 {
                     Console.WriteLine("FHG_LOGIN_STAGE:UNKNOWN_OFFICIAL_PAGE");
                     return 20;
@@ -222,7 +222,7 @@ internal static class Program
             // Wrong password/OTP or a stalled form is not retried blindly:
             // repeated submissions can lock the user's account.
             if (submitted.Count > 0 &&
-                clock.Elapsed - whenSubmitted > TimeSpan.FromSeconds(22))
+                clock.Elapsed - whenSubmitted > TimeSpan.FromSeconds(75))
             {
                 if (stage is LoginStage.Email or LoginStage.Password or LoginStage.Totp ||
                     stage is LoginStage.UnknownOfficial or LoginStage.ChatGptHome)
@@ -261,7 +261,25 @@ internal static class Program
             var submit = browser.FindVisible(
                 "form button[type='submit'], form input[type='submit']");
             if (submit == null) return false; // leave manual form visible
-            browser.Click(submit);
+            // The password page is known to produce 400 errors with a
+            // synthesized submission on some sessions, while the user's
+            // physical Continue click works. Give the web app time to
+            // finish processing its input event, then send an actual W3C
+            // mouse pointer move/down/up sequence on the rendered button.
+            // Never forge form POSTs, invoke JavaScript submit(), or press Enter.
+            if (expected == LoginStage.Password)
+            {
+                Thread.Sleep(1100);
+                if (TrustedLoginPage.Classify(browser.CurrentUri()) != expected ||
+                    HasChallenge(browser) ||
+                    !string.Equals(browser.ElementValue(elementId), credential,
+                        StringComparison.Ordinal))
+                    return false;
+                browser.PointerClick(submit);
+                Console.WriteLine("FHG_LOGIN_STAGE:PASSWORD_CONTINUE_MOUSE_CLICKED");
+            }
+            else
+                browser.Click(submit);
             return true;
         }
         catch (InvalidOperationException)

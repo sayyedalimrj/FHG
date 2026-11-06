@@ -112,3 +112,26 @@ hostnames, proxy credentials or subscription URLs are committed to GitHub.
 
 Distribution: RC5 uses a separate package ID and temporary release key, so
 existing RC4 data is unchanged; re-import the user's four-line file into RC5.
+
+## RC6 — polished native Android dashboard, no VPN engine modifications
+
+This candidate preserves the verified RC5 IPv6-zone panic repair and VPN
+connection engine, and replaces the school-project-style one-screen layout with
+a cohesive RTL, dark Material-like native dashboard: app identity/title,
+color-coded live connection status, one primary protected VPN action, an
+always-visible functional server/location picker, a structured account and
+TOTP block, a separate protected browser action and secondary tools that
+remain collapsed by default.
+
+All interactive controls are at least 48dp high, state meaning is also
+presented in text (not just color), system-bar and display-cutout WindowInsets
+are applied, input remains scrollable, and the native dark platform theme
+styles menus and dialogs. No new external UI libraries or network-facing
+features were added. The server selection still modifies the real sing-box
+route and secure DNS detour. The browser is still inaccessible until the
+VPN's tunneled HTTPS probe succeeds.
+
+CI provides compilation, lint, unit tests, native configuration validation and
+APK signing/integrity checks. CI does not reproduce the actual rendered
+dashboard on a physical Samsung phone nor verify VPN behavior on that phone.
+RC6 installs alongside RC5 (separate package ID) to preserve its data.

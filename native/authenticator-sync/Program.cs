@@ -29,10 +29,11 @@ internal static class Program
         }
         catch (InvalidOperationException)
         {
-            // Don't include arbitrary exception messages that could expose
-            // URLs, seed material or Windows filesystem details.
-            Console.Error.WriteLine("FHG_AUTHENTICATOR_UNSUPPORTED_STORAGE: Original Authenticator data or profile needs inspection.");
-            return 3;
+            // The Firefox 159 extension may use storage.local (IndexedDB)
+            // rather than the older SQLite schema. The signed original addon
+            // is synchronized later by Firefox's browser.storage API.
+            Console.WriteLine("FHG_AUTHENTICATOR_DEFERRED_TO_BROWSER_API");
+            return 0;
         }
         catch
         {

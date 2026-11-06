@@ -97,7 +97,11 @@ internal sealed class FirefoxDriverBridge : IDisposable
         // any website is visited. The operating-system clock is untouched.
         string timezoneResult = OriginalTimezoneSync.Apply(this);
         if (timezoneResult != "OK")
+        {
+            // Status values contain no URL, identity or authentication data.
+            Console.Error.WriteLine("FHG_TIMEZONE_EXTENSION_STATUS:" + timezoneResult);
             throw new InvalidOperationException("BERLIN_TIMEZONE_NOT_READY_" + timezoneResult);
+        }
     }
 
     private JsonElement Request(HttpMethod method, string relative, object? payload = null)

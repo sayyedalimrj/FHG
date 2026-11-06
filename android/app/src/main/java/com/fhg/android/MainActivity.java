@@ -59,12 +59,12 @@ public final class MainActivity extends Activity {
     private final Handler main=new Handler(Looper.getMainLooper());
     private LinearLayout root, advancedPanel;
     private Spinner spinner;
-    private TextView status, caption, accountLabel, profileLabel, otp, inlineError;
+    private TextView status, caption, accountLabel, profileLabel, otp, inlineError, serverLabel;
     private ProgressBar pending;
-    private Button power, browser, advanced, recovery;
+    private Button power, browser, advanced, recovery, serverPicker;
     private List<AccountStore.Account> accounts=new ArrayList<>();
     private boolean importing;
-    private int importRevision;
+    private volatile int importRevision;
     private boolean syncingSpinner;
     private boolean expanded;
     private String lastImportError="";
@@ -88,6 +88,14 @@ public final class MainActivity extends Activity {
         vault=new AccountStore(this);
         draw();
         loadAccounts();
+        // A process that died during native startup leaves only a redacted
+        // phase marker. Never pretend it was a successful VPN connection.
+        if(getSharedPreferences("fhg-vpn-state",MODE_PRIVATE)
+                .getBoolean("startup_pending",false)
+                && !EmbeddedVpnService.isStarting()) {
+            lastImportError="VPN_PREVIOUS_START_INTERRUPTED";
+            update();
+        }
         main.post(poll);
         if(saved==null) {
             try {
@@ -194,6 +202,11 @@ public final class MainActivity extends Activity {
         add(connection,power,55,16);
         profileLabel=label("پروفایل: نصب نشده",13,MUTED,false);
         add(connection,profileLabel,38,10);
+        serverPicker=action("🌍  انتخاب سرور / لوکیشن",0xff285777,this::chooseServer);
+        add(connection,serverPicker,53,8);
+        serverLabel=label("سرور: هنوز انتخاب نشده",13,ACCENT,false);
+        serverLabel.setMaxLines(2);
+        add(connection,serverLabel,-2,7);
         inlineError=label("",12,WARNING,false);
         inlineError.setMaxLines(4);
         inlineError.setVisibility(View.GONE);
@@ -273,7 +286,7 @@ public final class MainActivity extends Activity {
         add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
         add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
         add(root,advancedPanel,-2,7);
-        add(root,label("FHG Secure 1.0 RC2  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
+        add(root,label("FHG Secure 1.0 RC3  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
     }
 
     private void loadAccounts(){
@@ -349,21 +362,35 @@ public final class MainActivity extends Activity {
         try{
             AccountStore.Account account=vault.selected();
             if(account==null){
+                serverPicker.setEnabled(false);
+                serverPicker.setAlpha(.55f);
+                serverLabel.setText("سرور: حسابی انتخاب نشده");
                 accountLabel.setText("فایل چهارخطی حساب را انتخاب کن");
                 profileLabel.setText("پروفایل: نصب نشده");
                 otp.setText("2FA: —");
             } else {
                 accountLabel.setText(account.email);
-                if(!vault.hasVpnConfig(account.id))
+                if(!vault.hasVpnConfig(account.id)) {
                     profileLabel.setText("پروفایل: هنوز نصب نشده");
-                else if(!lastImportedProfile.isEmpty())
-                    profileLabel.setText(lastImportedProfile);
+                    serverLabel.setText("سرور: پس از نصب اشتراک قابل انتخاب است");
+                    serverPicker.setEnabled(false);
+                    serverPicker.setAlpha(.55f);
+                }
                 else {
+                    serverPicker.setEnabled(!importing&&!EmbeddedVpnService.isStarting());
+                    serverPicker.setAlpha(serverPicker.isEnabled()?1f:.55f);
+                    String existing=vault.loadVpnConfig(account.id);
+                    String choice=VpnConfig.selectedTag(existing);
+                    serverLabel.setText("سرور فعال: "+displayServer(choice));
+                    if(!lastImportedProfile.isEmpty())
+                        profileLabel.setText(lastImportedProfile);
+                    else {
                     JSONObject config=new JSONObject(vault.loadVpnConfig(account.id));
                     JSONArray outs=config.getJSONArray("outbounds");
                     int n=0; for(int i=0;i<outs.length();i++)
                         if(!"urltest".equals(outs.getJSONObject(i).optString("type")))n++;
                     profileLabel.setText("پروفایل نصب‌شده  •  "+n+" سرور");
+                    }
                 }
                 otp.setText(account.totpSecret.isEmpty()?"2FA: —":
                     "2FA: "+Totp.now(account.totpSecret)+"  ("+
@@ -385,9 +412,12 @@ public final class MainActivity extends Activity {
             case "JSON_HAS_NO_SUPPORTED_PROXY":return "فایل JSON سرور قابل‌پشتیبانی ندارد.";
             case "YAML_REMOTE_PROVIDER_UNSUPPORTED":return "این Clash YAML فقط به proxy-provider دیگری اشاره می‌کند.";
             case "PROXY_NOT_REACHABLE":return "اینترفیس VPN برقرار شد ولی آزمون HTTPS اختصاصیِ شبکه VPN موفق نبود.";
+            case "SERVER_SELECTION_FAILED":return "انتخاب این سرور با موتور VPN سازگار نیست یا توقف اتصال قبلی کامل نشده؛ سرور دیگری انتخاب کن.";
+            case "SERVER_LIST_UNAVAILABLE":return "فهرست سرورها باز نشد؛ یک بار اشتراک را به‌روز کن.";
             case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
             case "VPN_CONFIG_REJECTED":return "این پروفایل با موتور sing-box نصب‌شده سازگار نیست؛ فایل یا نوع اشتراک را بررسی کن.";
-            case "LIBBOX_START_ERROR":return "موتور sing-box پیکربندی را اجرا نکرد؛ پروفایل یا شبکه نیاز به بررسی دارد.";
+            case "LIBBOX_START_ERROR":return "موتور VPN در شروع خطا داد. گزارش فنی را بگیر و در صورت تکرار، لاگ adb را بررسی کن.";
+            case "VPN_PREVIOUS_START_INTERRUPTED":return "اجرای قبلی در زمان شروع VPN ناتمام مانده؛ احتمال کرش native یا توقف سیستم وجود دارد. گزارش فنی را بگیر.";
             case "PROFILE_MISSING":return "پروفایل VPN برای حساب انتخاب‌شده نصب نشده.";
             case "FOREGROUND_SERVICE_ERROR":return "اندروید اجرای سرویس VPN در پس‌زمینه را رد کرد.";
             default:return "اتصال یا اشتراک معتبر نیست ("+code+").";
@@ -511,6 +541,87 @@ public final class MainActivity extends Activity {
                 runOnUiThread(()->error("LOCAL_PROFILE_INVALID"));
             }
         },"fhg-local-profile").start();
+    }
+
+    private static String displayServer(String tag) {
+        if("fhg-proxy".equals(tag))return "خودکار (بررسی سرعت سرورها)";
+        if(tag==null||tag.isEmpty())return "نامشخص";
+        int separator=tag.indexOf(" · ");
+        return separator>=0?tag.substring(separator+3):tag;
+    }
+
+    private void chooseServer(){
+        try {
+            AccountStore.Account account=vault.selected();
+            if(account==null){pickAccount();return;}
+            if(!vault.hasVpnConfig(account.id)){importSubscription(account,false);return;}
+            String current=vault.loadVpnConfig(account.id);
+            List<String> choices=new ArrayList<>();
+            JSONObject json=new JSONObject(current);
+            JSONArray out=json.getJSONArray("outbounds");
+            for(int i=0;i<out.length();i++){
+                JSONObject item=out.getJSONObject(i);
+                if("urltest".equals(item.optString("type")) &&
+                    "fhg-proxy".equals(item.optString("tag")))choices.add("fhg-proxy");
+            }
+            choices.addAll(VpnConfig.selectableTags(current));
+            if(choices.isEmpty()){error("NO_SUPPORTED_PROXY_NODES");return;}
+            String[] labels=new String[choices.size()];
+            int selected=0;
+            String active=VpnConfig.selectedTag(current);
+            for(int i=0;i<choices.size();i++){
+                labels[i]=displayServer(choices.get(i));
+                if(choices.get(i).equals(active))selected=i;
+            }
+            new AlertDialog.Builder(this)
+                .setTitle("انتخاب سرور یا لوکیشن  •  "+VpnConfig.selectableTags(current).size()+" سرور")
+                .setSingleChoiceItems(labels,selected,(dialog,index)->{
+                    dialog.dismiss();
+                    String next=choices.get(index);
+                    if(next.equals(active))return;
+                    applyServer(account.id,next);
+                })
+                .setNegativeButton("انصراف",null).show();
+        }catch(Exception e){error("SERVER_LIST_UNAVAILABLE");}
+    }
+
+    private void applyServer(String accountId,String selected) {
+        final int revision=++importRevision;
+        final boolean restart=EmbeddedVpnService.isTunnelUp() ||
+            EmbeddedVpnService.isStarting();
+        importing=true;
+        lastImportError="";
+        update();
+        // Stop the existing tunnel before replacing its encrypted config.
+        if(restart)disconnect();
+        new Thread(()->{
+            String failure="";
+            try{
+                if(restart){
+                    for(int i=0;i<30 && (EmbeddedVpnService.isTunnelUp() ||
+                        EmbeddedVpnService.isStarting());i++)Thread.sleep(100);
+                    Thread.sleep(400);
+                    if(EmbeddedVpnService.isTunnelUp() ||
+                        EmbeddedVpnService.isStarting())throw new Exception("VPN_STOP_TIMEOUT");
+                }
+                AccountStore.Account active=vault.selected();
+                if(active==null||!active.id.equals(accountId)||revision!=importRevision)return;
+                String original=vault.loadVpnConfig(accountId);
+                String modified=VpnConfig.withSelected(original,selected);
+                VpnEngineSetup.validate(this,modified);
+                if(revision!=importRevision)return;
+                vault.saveVpnConfig(accountId,modified);
+            }catch(Exception e){failure="SERVER_SELECTION_FAILED";}
+            final String result=failure;
+            runOnUiThread(()->{
+                if(revision!=importRevision||isFinishing()||isDestroyed())return;
+                importing=false;
+                lastImportError=result;
+                lastImportedProfile="";
+                update();
+                if(result.isEmpty()&&restart)connectVpn();
+            });
+        },"fhg-proxy-selector").start();
     }
 
     private void onPower(){

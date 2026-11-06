@@ -74,6 +74,7 @@ jobs:
               !$installer.Contains('Filename: "{app}\Firefox\firefox.exe"') -or
               !$installer.Contains('function FirefoxProfileArgs') -or
               !$installer.Contains('Raw: AnsiString;') -or
+              $installer.Contains('raise Exception.Create') -or
               !$installer.Contains('Check: HasConfiguredAccount') -or
               !$installer.Contains('FHGProxy.ico') -or
               !$installer.Contains('FHGAccounts.ico') -or

@@ -17,8 +17,8 @@ public class VpnConfigTest {
         assertTrue(node.getJSONObject("tls").getJSONObject("reality").getBoolean("enabled"));
         assertEquals("ws",node.getJSONObject("transport").getString("type"));
         assertTrue(root.getJSONObject("route").getBoolean("auto_detect_interface"));
-        assertEquals("node-1",root.getJSONObject("route").getString("final"));
-        assertEquals("node-1",root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0).getString("detour"));
+        assertTrue(root.getJSONObject("route").getString("final").startsWith("node-1"));
+        assertEquals(root.getJSONObject("route").getString("final"),root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0).getString("detour"));
         assertFalse(root.toString().contains("\"type\":\"direct\""));
     }
 
@@ -30,6 +30,32 @@ public class VpnConfigTest {
         assertEquals(3,outs.length());
         assertEquals("urltest",outs.getJSONObject(2).getString("type"));
         assertEquals("fhg-proxy",obj.getJSONObject("route").getString("final"));
+    }
+
+    @Test public void selectingLocationChangesBothProxyRouteAndDnsDetour() throws Exception {
+        String config=VpnConfig.parse("trojan://pass@a.example.org:443#Germany%20Frankfurt\\n" +
+            "trojan://pass@b.example.org:443#Finland%20Helsinki");
+        java.util.List<String> tags=VpnConfig.selectableTags(config);
+        assertEquals(2,tags.size());
+        assertTrue(tags.get(0).contains("Germany Frankfurt"));
+        assertTrue(tags.get(1).contains("Finland Helsinki"));
+        String chosen=VpnConfig.withSelected(config,tags.get(1));
+        JSONObject root=new JSONObject(chosen);
+        assertEquals(tags.get(1),VpnConfig.selectedTag(chosen));
+        assertEquals(tags.get(1),root.getJSONObject("dns").getJSONArray("servers")
+            .getJSONObject(0).getString("detour"));
+        assertEquals(3,root.getJSONArray("outbounds").length());
+        assertFalse(root.toString().contains("\\"type\\":\\"direct\\""));
+        assertEquals("fhg-proxy",VpnConfig.selectedTag(
+            VpnConfig.withSelected(chosen,"fhg-proxy")));
+    }
+
+    @Test public void maliciousOrUnknownLocationCannotAlterRoute() throws Exception {
+        String json=VpnConfig.parse("trojan://pass@a.example.org:443#Germany");
+        try { VpnConfig.withSelected(json,"direct"); fail("direct selection must be rejected"); }
+        catch(IllegalArgumentException expected) {}
+        try { VpnConfig.withSelected(json,"fhg-proxy"); fail("auto absent for one server"); }
+        catch(IllegalArgumentException expected) {}
     }
 
     @Test public void base64SubscriptionIsAccepted() throws Exception {
@@ -88,7 +114,7 @@ public class VpnConfigTest {
             "\"route\":{\"final\":\"direct\"}}";
         JSONObject root=new JSONObject(VpnConfig.parse(input));
         assertEquals("tun",root.getJSONArray("inbounds").getJSONObject(0).getString("type"));
-        assertEquals("node-1",root.getJSONObject("route").getString("final"));
+        assertTrue(root.getJSONObject("route").getString("final").startsWith("node-1"));
         assertFalse(root.toString().contains("\"type\":\"direct\""));
     }
 

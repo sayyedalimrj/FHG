@@ -183,11 +183,14 @@ internal static class Program
             }
             verified = 0;
 
-            // CAPTCHA detection never triggers window closure or bypass.
+            // Cloudflare's "Just a moment / Verifying you are human"
+            // must run without a WebDriver-managed Firefox session. Preserve
+            // this same private profile and request a NORMAL Firefox handoff,
+            // rather than repeatedly clicking/verifying under automation.
             if (official && HasChallenge(browser))
             {
-                State("MANUAL_CHALLENGE");
-                continue;
+                State("MANUAL_BROWSER");
+                return 23; // caller launches ordinary Firefox for user check
             }
             if (!official)
             {
@@ -229,7 +232,7 @@ internal static class Program
                 // One genuine UI submission per stage. Never race a user who
                 // has already typed a different value into the field.
                 attempted.Add(stage);
-                bool sent = false;
+                bool filled = false;
                 try
                 {
                     string value;
@@ -242,17 +245,17 @@ internal static class Program
                             Thread.Sleep(350);
                         value = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
                     }
-                    sent = SubmitOnce(browser, field, value, stage);
+                    filled = FillOnly(browser, field, value);
                 }
                 catch (InvalidOperationException) { /* Navigation/element changed. */ }
                 catch (ArgumentException) { /* A broken seed needs manual action. */ }
 
                 lastProgress = timer.Elapsed;
-                State(sent ? stage switch
+                State(filled ? stage switch
                 {
-                    LoginStage.Email => "EMAIL_SUBMITTED",
-                    LoginStage.Password => "PASSWORD_SUBMITTED",
-                    _ => "TOTP_SUBMITTED"
+                    LoginStage.Email => "EMAIL_READY",
+                    LoginStage.Password => "PASSWORD_READY",
+                    _ => "TOTP_READY"
                 } : "MANUAL_REQUIRED");
                 continue;
             }
@@ -268,41 +271,27 @@ internal static class Program
 
     private static bool HasChallenge(FirefoxDriverBridge browser)
     {
-        try { return browser.IsPresent(
-            "iframe[src*='challenges.cloudflare.com'], " +
-            "input[name='cf-turnstile-response'], iframe[title*='CAPTCHA'], [data-sitekey]"); }
+        try { return browser.IsSecurityChallenge(); }
         catch (InvalidOperationException) { return false; }
     }
 
-    private static bool SubmitOnce(FirefoxDriverBridge browser,
-        string field, string desired, LoginStage kind)
+    // Fill but NEVER submit. Continue is clicked ONLY by the human.
+    private static bool FillOnly(FirefoxDriverBridge browser, string field,
+        string desired)
     {
-        // No credentials ever go to non-HTTPS or other providers.
-        if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid)
-            return false;
-        string? before = browser.ElementValue(field);
-        if (!string.IsNullOrEmpty(before) &&
-            !string.Equals(before, desired, StringComparison.Ordinal))
-            return false; // The human has started editing.
-        if (!string.Equals(before, desired, StringComparison.Ordinal))
-            browser.Fill(field, desired);
-        if (!string.Equals(browser.ElementValue(field), desired, StringComparison.Ordinal))
-            return false;
         if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid ||
-            HasChallenge(browser)) return false;
-        string? button = browser.FindVisible(
-            "form button[type='submit'], form input[type='submit'], " +
-            "button[type='submit'], input[type='submit']");
-        if (button == null) return false;
-        if (kind == LoginStage.Password)
-        {
-            Thread.Sleep(800);
-            if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid ||
-                !string.Equals(browser.ElementValue(field), desired, StringComparison.Ordinal))
-                return false;
-            browser.PointerClick(button);
-        }
-        else browser.Click(button);
-        return true;
+            HasChallenge(browser))
+            return false;
+
+        string? existing = browser.ElementValue(field);
+        if (!string.IsNullOrEmpty(existing) &&
+            !string.Equals(existing, desired, StringComparison.Ordinal))
+            return false; // respect anything the user has started typing
+
+        browser.TypeIntoField(field, desired);
+        return string.Equals(browser.ElementValue(field), desired,
+            StringComparison.Ordinal) &&
+            TrustedLoginPage.Classify(browser.CurrentUri()) != LoginStage.Invalid &&
+            !HasChallenge(browser);
     }
 }

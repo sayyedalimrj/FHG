@@ -123,6 +123,10 @@ internal sealed class WorkspaceWindow : Form
         refreshTimer.Start();
         FormClosed+=(_,_)=>ClearOwnedClipboard();
         LoadAccounts();
+        // Installer may run before the first account is imported. Refresh
+        // the three distinct desktop/Start Menu shortcuts on every workspace
+        // start; Firefox is created only after an active account exists.
+        ShortcutManager.Sync(AppContext.BaseDirectory, AccountVault.ActiveId());
         // First-ever launch after installation: directly open the local
         // four-line file picker. Existing DPAPI accounts are never reimported.
         // Shown (rather than constructor) ensures the dialog appears on top.
@@ -311,6 +315,9 @@ internal sealed class WorkspaceWindow : Form
         if(!File.Exists(exe))throw new IOException("FHG launcher missing");
         ClearOwnedClipboard();
         AccountVault.SetActive(account.Id);
+        // Switching accounts updates the direct firefox.exe shortcut to the
+        // newly selected account's own profile, without opening a login tab.
+        bool desktopShortcutOk = ShortcutManager.Sync(AppContext.BaseDirectory, account.Id);
         if (!proxyOnly)
         {
             try { LoginProgress.Write(account.Id, "STARTING"); }
@@ -324,9 +331,11 @@ internal sealed class WorkspaceWindow : Form
         if(proxyOnly)info.ArgumentList.Add("--proxy-only");
         using var started=Process.Start(info);
         if(started is null)throw new IOException("Could not start FHG");
-        this.info.Text=proxyOnly
-            ? "Opening the dedicated FHG Proxy with the selected subscription."
-            : "Preparing protected Firefox and encrypted password storage. You handle ChatGPT sign-in.";
+        this.info.Text = !desktopShortcutOk
+            ? "Firefox started; desktop shortcut update was unavailable (check FHG app folder)."
+            : proxyOnly
+                ? "Opening the dedicated FHG Proxy with the selected subscription."
+                : "Firefox ready. Username and password saved automatically; ChatGPT login is manual.";
     }
 
     private void AddAccount()
@@ -382,7 +391,8 @@ internal sealed class WorkspaceWindow : Form
         dialog.Controls.Add(save);
         if(dialog.ShowDialog(this)!=DialogResult.OK)return;
         LoadAccounts(account.Id);
-        info.Text="Saved. Start workspace to apply any changed subscription and refresh Authenticator.";
+        ShortcutManager.Sync(AppContext.BaseDirectory, AccountVault.ActiveId());
+        info.Text="Saved. Start workspace to apply subscription, password and Authenticator updates.";
     }
 
     private void DeleteAccount(FhgAccount account)
@@ -394,6 +404,7 @@ internal sealed class WorkspaceWindow : Form
             MessageBoxDefaultButton.Button2)!=DialogResult.Yes)return;
         ClearOwnedClipboard();
         AccountVault.DeleteAccount(account.Id);
+        ShortcutManager.Sync(AppContext.BaseDirectory, AccountVault.ActiveId());
         LoadAccounts();
         info.Text="Saved credentials removed. Firefox profile preserved.";
     }

@@ -8,7 +8,7 @@ internal static class LoginProgress
 {
     private static readonly HashSet<string> Codes = new(StringComparer.Ordinal)
     {
-        "NOT_STARTED", "STARTING", "EMAIL_SUBMITTED",
+        "NOT_STARTED", "STARTING", "MANUAL_FIREFOX", "EMAIL_SUBMITTED",
         "PASSWORD_SUBMITTED", "TOTP_SUBMITTED",
         "EMAIL_READY", "PASSWORD_READY", "TOTP_READY",
         "MANUAL_REQUIRED", "MANUAL_CHALLENGE", "MANUAL_BROWSER", "VERIFYING",
@@ -51,7 +51,8 @@ internal static class LoginProgress
 
     internal static string Display(string code) => code switch
     {
-        "STARTING" => "Signing in: opening the protected browser",
+        "STARTING" => "Preparing protected Firefox",
+        "MANUAL_FIREFOX" => "Firefox ready — sign in yourself; choose Save when prompted",
         "EMAIL_READY" => "Email entered — click Continue in Firefox",
         "PASSWORD_READY" => "Password entered — click Continue yourself",
         "TOTP_READY" => "2FA code entered — click Continue yourself",

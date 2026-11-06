@@ -57,7 +57,10 @@ jobs:
             if ($signatures.Count -lt 2) { throw 'No XPI signature files present' }
           } finally { $archive.Dispose() }
           $hash=(Get-FileHash $xpi -Algorithm SHA256).Hash.ToLowerInvariant()
-          Write-Host "PIN_SPOOF_TIMEZONE_XPI_SHA256=$hash"
+          if ($hash -ne '542422365981287388c243ab60c4ac3b62df6713a8c00761fdff9fc06f70ba6f') {
+            throw 'Mozilla signed Spoof Timezone 0.5.0 archive hash changed; do not silently replace it'
+          }
+          Write-Host "PASS: Mozilla-signed timezone 0.5.0 SHA256=$hash"
           [IO.File]::WriteAllText($xpi+'.sha256',$hash + '  fhg-timezone.xpi'+[Environment]::NewLine,[Text.Encoding]::ASCII)
       - name: Stage the exact previously released Firefox and original Authenticator
         shell: pwsh

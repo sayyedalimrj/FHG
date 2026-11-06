@@ -47,16 +47,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "applicationId 'com.fhg.android.embedded'" android/app/build.gradle
+          grep -q "applicationId 'com.fhg.android.repair'" android/app/build.gradle
           grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
           grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
           grep -q 'TRANSPORT_VPN' android/app/src/main/java/com/fhg/android/NetworkGate.java
           grep -q 'EmbeddedVpnService.isEstablished' android/app/src/main/java/com/fhg/android/NetworkGate.java
-          grep -q 'class EmbeddedVpnService extends VpnService' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'implements PlatformInterface, CommandServerHandler' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
           grep -q 'io.nekohasekai.libbox.CommandServer' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
           grep -q 'startOrReloadService' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
-          grep -q 'protect(numeric(args' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'if (!protect(fd))' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
           grep -q 'setAction(EmbeddedVpnService.ACTION_CONNECT)' android/app/src/main/java/com/fhg/android/MainActivity.java
           grep -q 'android.permission.BIND_VPN_SERVICE' android/app/src/main/AndroidManifest.xml
           grep -q 'No direct' android/app/src/main/java/com/fhg/android/VpnConfig.java

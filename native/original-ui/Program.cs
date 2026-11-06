@@ -188,8 +188,13 @@ internal static class Program
             // finished; the dedicated browser then opens normally. The
             // existing signed Authenticator and all Hiddify binaries remain
             // unchanged. A provider CAPTCHA/SSO challenge stays manual.
+            bool loginSucceeded = false;
             if (AccountPaths.ActiveId is string loginAccountId)
-                RunAutomaticChatGptLogin(loginAccountId);
+                loginSucceeded = RunAutomaticChatGptLogin(loginAccountId);
+            // WebDriver owns a TEMPORARY Firefox window and closes that
+            // window when its session ends. Allow its profile lock to release
+            // before starting the separate, long-lived user window.
+            Thread.Sleep(1700);
             var browser = new ProcessStartInfo(FirefoxExe)
             {
                 WorkingDirectory = FirefoxDir,
@@ -198,18 +203,30 @@ internal static class Program
             browser.ArgumentList.Add("-no-remote");
             browser.ArgumentList.Add("-profile");
             browser.ArgumentList.Add(ProfileDir);
-            browser.ArgumentList.Add("https://chatgpt.com/");
+            // If automation could not finish, open the EXACT /login URL
+            // supplied by the user, not the homepage or /auth/login.
+            browser.ArgumentList.Add(loginSucceeded
+                ? "https://chatgpt.com/"
+                : "https://chatgpt.com/login");
 
-            using var firefox = Process.Start(browser);
-            if (firefox is null)
+            // A just-closed WebDriver session can briefly leave Firefox's
+            // profile locked. Retry only early process exits, never delete
+            // a profile or kill an unrelated Firefox process.
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                Warn("Unable to start the FHG Firefox browser.");
-                return 7;
+                using var firefox = Process.Start(browser);
+                if (firefox != null && !firefox.WaitForExit(1400))
+                {
+                    Log("FHG user-facing Firefox window started and remained open.");
+                    return 0;
+                }
+                Log("FHG user-facing Firefox exited on attempt " + attempt + "; retrying safely.");
+                Thread.Sleep(1500 * attempt);
             }
-
-            // Hiddify owns its connection lifecycle; the Firefox window remains open
-            // when the proxy is disconnected and does not fall back to DIRECT.
-            return 0;
+            Warn("FHG Firefox could not stay open after automatic sign-in. " +
+                 "Your account data and browser profile have NOT been deleted. " +
+                 "Review the local FHG log for diagnostics.");
+            return 7;
         }
         catch (Exception ex)
         {
@@ -458,14 +475,14 @@ internal static class Program
         }
     }
 
-    private static void RunAutomaticChatGptLogin(string accountId)
+    private static bool RunAutomaticChatGptLogin(string accountId)
     {
         string exe = Path.Combine(Root, "FHGLogin.exe");
         string driver = Path.Combine(Root, "WebDriver", "geckodriver.exe");
         if (!File.Exists(exe) || !File.Exists(driver))
         {
-            Log("FHG auto-login components missing; opening regular Firefox for manual login.");
-            return;
+            Log("FHG auto-login components missing; direct login remains available.");
+            return false;
         }
         try
         {
@@ -473,34 +490,58 @@ internal static class Program
             {
                 WorkingDirectory = Root,
                 UseShellExecute = false,
-                CreateNoWindow = true
+                CreateNoWindow = true,
+                RedirectStandardOutput = true
             };
-            // Only the harmless 32-character account identifier is passed
-            // through the process command line. No password or OTP master key.
+            // Only the harmless account ID is passed; no password or OTP.
             info.ArgumentList.Add("--account");
             info.ArgumentList.Add(accountId);
             using var login = Process.Start(info);
-            if (login == null) { Log("Auto-login helper unavailable."); return; }
+            if (login == null)
+            {
+                Log("FHG auto-login helper did not start.");
+                return false;
+            }
             if (!login.WaitForExit(155000))
             {
                 try { login.Kill(entireProcessTree: true); }
                 catch { }
-                Log("Auto-login reached its safety timeout; Firefox opens for manual continuation.");
-                return;
+                Log("FHG auto-login timed out; handing off to visible /login window.");
+                return false;
+            }
+            // Only allow fixed, sanitized helper diagnostics into the local
+            // log. Never record credentials, TOTP, page HTML, or full URLs.
+            foreach (string raw in login.StandardOutput.ReadToEnd().Split('\n'))
+            {
+                string line = raw.Trim();
+                const string prefix = "FHG_LOGIN_STAGE:";
+                if (line.StartsWith(prefix, StringComparison.Ordinal) &&
+                    line.Length < 110 &&
+                    line.Substring(prefix.Length).All(c =>
+                        (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'))
+                    Log(line);
             }
             switch (login.ExitCode)
             {
-                case 0: Log("Auto-login: recognized authenticated ChatGPT interface."); break;
-                case 22: Log("Auto-login skipped synthetic account or missing real email."); break;
-                case 20: Log("Auto-login could not complete: provider challenge, SSO or unrecognized form."); break;
-                default: Log("Auto-login unavailable; normal Firefox sign-in remains accessible."); break;
+                case 0:
+                    Log("Auto-login: verified authenticated ChatGPT interface.");
+                    return true;
+                case 22:
+                    Log("Auto-login skipped: no eligible real email.");
+                    break;
+                case 20:
+                    Log("Auto-login interrupted; handing off to real /login page.");
+                    break;
+                default:
+                    Log("Auto-login unavailable; handing off to real /login page.");
+                    break;
             }
         }
         catch (Exception e)
         {
-            // Do not log account data or server form contents.
             Log("Auto-login helper error type " + e.GetType().Name);
         }
+        return false;
     }
 
     private static void InstallChatGptStartTile()

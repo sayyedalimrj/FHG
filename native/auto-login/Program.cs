@@ -42,9 +42,8 @@ internal static class Program
         try { LoginProgress.Write(account.Id, "STARTING"); } catch { }
         try
         {
-            using var ui = new LoginProgressWindow();
             using var browser = new FirefoxDriverBridge(geckodriver, firefox, profile);
-            return Execute(browser, account, ui);
+            return Execute(browser, account);
         }
         catch (Exception e)
         {
@@ -113,15 +112,15 @@ internal static class Program
         }
     }
 
-    private static void Report(FhgAccount a, LoginProgressWindow ui, string code)
+
+    private static void Report(FhgAccount a, string code)
     {
-        try { LoginProgress.Write(a.Id, code); } catch (IOException) { }
-        ui.Set(LoginProgress.Display(code));
+        try { LoginProgress.Write(a.Id, code); }
+        catch (IOException) { /* UI state is best-effort, not an auth requirement. */ }
         Console.WriteLine("FHG_LOGIN_STAGE:" + code);
     }
 
-    private static int Execute(FirefoxDriverBridge browser, FhgAccount account,
-        LoginProgressWindow ui)
+    private static int Execute(FirefoxDriverBridge browser, FhgAccount account)
     {
         try
         {
@@ -130,90 +129,140 @@ internal static class Program
         }
         catch (Exception) { Console.WriteLine("FHG_ORIGINAL_AUTHENTICATOR:UNAVAILABLE"); }
 
-        bool emailTried = false, manual = false;
+        var attempted = new System.Collections.Generic.HashSet<LoginStage>();
+        var timer = Stopwatch.StartNew();
+        TimeSpan lastProgress = TimeSpan.Zero;
         int verified = 0, lost = 0;
-        var clock = Stopwatch.StartNew();
-        try { browser.GoTo("https://chatgpt.com/login"); }
-        catch (InvalidOperationException) { manual = true; }
-        Report(account, ui, manual ? "MANUAL_REQUIRED" : "STARTING");
+        string status = "STARTING";
 
-        // No timeout: only verified login or an EXPLICIT user cancel can end
-        // an active browser session. No automatic password/TOTP/SSO submission.
+        void State(string code)
+        {
+            if (status == code) return;
+            status = code;
+            Report(account, code);
+        }
+
+        // Reuse the original tab and close ONLY the setup tabs opened by our
+        // own signed extensions; no extra status dialog or dummy new tab.
+        try { browser.CloseSetupTabsAndNavigate("https://chatgpt.com/login"); }
+        catch (InvalidOperationException)
+        {
+            State("MANUAL_REQUIRED");
+            // Even an upstream navigation error must leave Firefox visible.
+        }
+
+        // There is intentionally NO overall timeout. CAPTCHA, provider SSO,
+        // failed requests and unfamiliar screens remain available to the user.
         while (true)
         {
-            if (ui.CancelRequested) { Report(account, ui, "CANCELED"); return 21; }
-            Thread.Sleep(1300);
+            Thread.Sleep(1250);
             Uri? uri;
             try { uri = browser.CurrentUri(); lost = 0; }
             catch (InvalidOperationException)
             {
-                if (++lost >= 120) { Report(account, ui, "ERROR"); return 30; }
+                if (++lost >= 120) { State("ERROR"); return 30; }
                 continue;
             }
-            LoginStage stage = TrustedLoginPage.Classify(uri);
-            bool authenticated = false;
-            if (uri != null && stage != LoginStage.Invalid &&
-                uri.Host.Equals("chatgpt.com", StringComparison.OrdinalIgnoreCase))
+
+            var originStage = TrustedLoginPage.Classify(uri);
+            bool official = originStage != LoginStage.Invalid;
+            bool atChatGpt = official && uri != null &&
+                uri.Host.Equals("chatgpt.com", StringComparison.OrdinalIgnoreCase);
+
+            bool loggedIn = false;
+            if (atChatGpt)
             {
-                try { authenticated = browser.IsAuthenticatedUi(); }
+                try { loggedIn = browser.IsAuthenticatedUi(); }
                 catch (InvalidOperationException) { }
             }
-            if (authenticated)
+            if (loggedIn)
             {
-                if (++verified >= 2)
-                {
-                    Report(account, ui, "SUCCESS");
-                    Thread.Sleep(1000);
-                    return 0;
-                }
-                if (LoginProgress.Read(account.Id) != "VERIFYING")
-                    Report(account, ui, "VERIFYING");
+                if (++verified >= 2) { State("SUCCESS"); return 0; }
+                State("VERIFYING");
                 continue;
             }
             verified = 0;
 
-            bool challenge = stage != LoginStage.Invalid && HasChallenge(browser);
-            if (challenge)
+            // CAPTCHA detection never triggers window closure or bypass.
+            if (official && HasChallenge(browser))
             {
-                manual = true;
-                if (LoginProgress.Read(account.Id) != "MANUAL_CHALLENGE")
-                    Report(account, ui, "MANUAL_CHALLENGE");
+                State("MANUAL_CHALLENGE");
+                continue;
+            }
+            if (!official)
+            {
+                State("MANUAL_REQUIRED"); // External IdP: user controls it.
                 continue;
             }
 
-            if (!manual && !emailTried && stage == LoginStage.Email)
+            // Detect actual input rather than assuming a specific route.
+            // The current /login page can show email, password, or OTP.
+            LoginStage stage = LoginStage.UnknownOfficial;
+            string? field = null;
+            try
             {
-                try
+                field = browser.FindVisible(
+                    "input[autocomplete='one-time-code'], input[name='code'], " +
+                    "input[name='otp'], input[name='mfa_code'], " +
+                    "input[inputmode='numeric'][maxlength='6']");
+                if (field != null) stage = LoginStage.Totp;
+                else
                 {
-                    string? email = browser.FindVisible(
-                        "form input[name='username'][type='email'], " +
-                        "form input[type='email'][autocomplete='email'], form input[type='email']");
-                    if (email != null)
+                    field = browser.FindVisible(
+                        "input[type='password'][autocomplete*='current-password'], " +
+                        "input[name='password'][type='password'], input[type='password']");
+                    if (field != null) stage = LoginStage.Password;
+                    else
                     {
-                        emailTried = true;
-                        bool sent = SubmitEmailOnce(browser, email, account.Label);
-                        manual = true; // user owns password, CAPTCHA, 2FA, SSO
-                        Report(account, ui, sent ? "EMAIL_SUBMITTED" : "MANUAL_REQUIRED");
-                        continue;
+                        field = browser.FindVisible(
+                            "input[type='email'], input[name='email'], " +
+                            "input[id='email'], input[autocomplete='email'], " +
+                            "input[autocomplete='username'], input[name='username']");
+                        if (field != null) stage = LoginStage.Email;
                     }
                 }
-                catch (InvalidOperationException)
+            }
+            catch (InvalidOperationException) { /* Redirect may be in progress. */ }
+
+            if (field != null && !attempted.Contains(stage))
+            {
+                // One genuine UI submission per stage. Never race a user who
+                // has already typed a different value into the field.
+                attempted.Add(stage);
+                bool sent = false;
+                try
                 {
-                    manual = true;
-                    Report(account, ui, "MANUAL_REQUIRED");
-                    continue;
+                    string value;
+                    if (stage == LoginStage.Email) value = account.Label;
+                    else if (stage == LoginStage.Password) value = account.Password;
+                    else
+                    {
+                        // Avoid sending an OTP at the end of its 30s validity.
+                        while (30 - DateTimeOffset.UtcNow.ToUnixTimeSeconds() % 30 < 12)
+                            Thread.Sleep(350);
+                        value = AccountVault.GenerateTotp(account.TotpSeed, DateTimeOffset.UtcNow);
+                    }
+                    sent = SubmitOnce(browser, field, value, stage);
                 }
+                catch (InvalidOperationException) { /* Navigation/element changed. */ }
+                catch (ArgumentException) { /* A broken seed needs manual action. */ }
+
+                lastProgress = timer.Elapsed;
+                State(sent ? stage switch
+                {
+                    LoginStage.Email => "EMAIL_SUBMITTED",
+                    LoginStage.Password => "PASSWORD_SUBMITTED",
+                    _ => "TOTP_SUBMITTED"
+                } : "MANUAL_REQUIRED");
+                continue;
             }
 
-            // Unexpected identity-provider origins are NEVER automated; the
-            // human may navigate them, and the driver stays connected.
-            if (!manual && (stage != LoginStage.Email ||
-                clock.Elapsed > TimeSpan.FromSeconds(30)))
-                manual = true;
-            var current = LoginProgress.Read(account.Id);
-            if (manual && current != "MANUAL_REQUIRED" &&
-                (current != "EMAIL_SUBMITTED" || stage != LoginStage.Email))
-                Report(account, ui, "MANUAL_REQUIRED");
+            // The user sees a clear manual status only if a stage is stuck or
+            // unknown; later stages can still be automated after they appear.
+            if (timer.Elapsed - lastProgress > TimeSpan.FromSeconds(35) &&
+                status != "MANUAL_REQUIRED" && status != "MANUAL_CHALLENGE" &&
+                status != "SUCCESS")
+                State("MANUAL_REQUIRED");
         }
     }
 
@@ -225,20 +274,35 @@ internal static class Program
         catch (InvalidOperationException) { return false; }
     }
 
-    private static bool SubmitEmailOnce(FirefoxDriverBridge browser,
-        string elementId, string email)
+    private static bool SubmitOnce(FirefoxDriverBridge browser,
+        string field, string desired, LoginStage kind)
     {
-        if (TrustedLoginPage.Classify(browser.CurrentUri()) != LoginStage.Email)
+        // No credentials ever go to non-HTTPS or other providers.
+        if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid)
             return false;
-        browser.Fill(elementId, email);
-        if (!string.Equals(browser.ElementValue(elementId), email,
-            StringComparison.Ordinal)) return false;
-        if (TrustedLoginPage.Classify(browser.CurrentUri()) != LoginStage.Email ||
+        string? before = browser.ElementValue(field);
+        if (!string.IsNullOrEmpty(before) &&
+            !string.Equals(before, desired, StringComparison.Ordinal))
+            return false; // The human has started editing.
+        if (!string.Equals(before, desired, StringComparison.Ordinal))
+            browser.Fill(field, desired);
+        if (!string.Equals(browser.ElementValue(field), desired, StringComparison.Ordinal))
+            return false;
+        if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid ||
             HasChallenge(browser)) return false;
-        string? submit = browser.FindVisible(
-            "form button[type='submit'], form input[type='submit']");
-        if (submit == null) return false;
-        browser.Click(submit);
+        string? button = browser.FindVisible(
+            "form button[type='submit'], form input[type='submit'], " +
+            "button[type='submit'], input[type='submit']");
+        if (button == null) return false;
+        if (kind == LoginStage.Password)
+        {
+            Thread.Sleep(800);
+            if (TrustedLoginPage.Classify(browser.CurrentUri()) == LoginStage.Invalid ||
+                !string.Equals(browser.ElementValue(field), desired, StringComparison.Ordinal))
+                return false;
+            browser.PointerClick(button);
+        }
+        else browser.Click(button);
         return true;
     }
 }

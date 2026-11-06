@@ -312,7 +312,9 @@ final class VpnConfig {
                 .put("outbounds",names).put("url",PROBE).put("interval","5m"));
         }
         root.put("outbounds",outs);
-        String finalTag=nodes.size()==1?nodes.get(0).getString("tag"):"fhg-proxy";
+        // Start conservatively with one upstream. The 21-node URL-test
+        // remains an explicit UI option, not mandatory at VPN boot.
+        String finalTag=nodes.get(0).getString("tag");
         root.put("route",new JSONObject().put("final",finalTag)
             .put("auto_detect_interface",true));
         root.put("dns",new JSONObject()

@@ -118,7 +118,19 @@ internal static class Program
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
                 return 55;
             }
-            Console.WriteLine("PASS: original Authenticator plus encrypted Firefox NSS password import persisted offline");
+            // Prove the EXACT production path works without a visible browser
+            // or web login. A signed NSS record remains after two restarts.
+            verify.Dispose();
+            Thread.Sleep(1200);
+            using (var headless = new FirefoxDriverBridge(
+                Path.Combine(Root, "WebDriver", "geckodriver.exe"),
+                Path.Combine(Root, "Firefox", "firefox.exe"),
+                temporaryProfile, headless: true))
+            {
+                if (!FirefoxPasswordStore.Import(headless, fake.Label, fake.Password))
+                    return 58;
+            }
+            Console.WriteLine("PASS: original Authenticator and encrypted Firefox NSS login persisted through headless offline import");
             return 0;
         }
         catch (Exception) { return 53; }

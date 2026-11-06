@@ -140,8 +140,17 @@ final class AccountStore {
     }
 
     synchronized Account importFourLines(InputStream stream) throws Exception {
-        byte[] raw = stream.readNBytes(16385);
-        if (raw.length > 16384) throw new Exception("Configuration exceeds 16 KiB");
+        // Bounded read works on all supported Android API 26+ devices;
+        // InputStream.readNBytes is absent on some older Android runtimes.
+        ByteArrayOutputStream bounded = new ByteArrayOutputStream();
+        byte[] block = new byte[2048];
+        int countRead;
+        while ((countRead = stream.read(block)) != -1) {
+            if (bounded.size() + countRead > 16384)
+                throw new Exception("Configuration exceeds 16 KiB");
+            bounded.write(block, 0, countRead);
+        }
+        byte[] raw = bounded.toByteArray();
         String[] lines = new String(raw, StandardCharsets.UTF_8)
                 .replace("\\r\\n", "\\n").split("\\n", -1);
         int count = lines.length;

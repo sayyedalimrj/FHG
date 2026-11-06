@@ -19,7 +19,7 @@ public class VpnConfigTest {
         assertTrue(root.getJSONObject("route").getBoolean("auto_detect_interface"));
         assertTrue(root.getJSONObject("route").getString("final").startsWith("node-1"));
         assertEquals(root.getJSONObject("route").getString("final"),root.getJSONObject("dns").getJSONArray("servers").getJSONObject(0).getString("detour"));
-        assertFalse(root.toString().contains("\"type\":\"direct\""));
+        assertFalse(root.toString().contains("direct"));
     }
 
     @Test public void twoTrojanNodesCreateAutomaticUrlTest() throws Exception {
@@ -33,7 +33,7 @@ public class VpnConfigTest {
     }
 
     @Test public void selectingLocationChangesBothProxyRouteAndDnsDetour() throws Exception {
-        String config=VpnConfig.parse("trojan://pass@a.example.org:443#Germany%20Frankfurt\\n" +
+        String config=VpnConfig.parse("trojan://pass@a.example.org:443#Germany%20Frankfurt\n" +
             "trojan://pass@b.example.org:443#Finland%20Helsinki");
         java.util.List<String> tags=VpnConfig.selectableTags(config);
         assertEquals(2,tags.size());
@@ -45,7 +45,7 @@ public class VpnConfigTest {
         assertEquals(tags.get(1),root.getJSONObject("dns").getJSONArray("servers")
             .getJSONObject(0).getString("detour"));
         assertEquals(3,root.getJSONArray("outbounds").length());
-        assertFalse(root.toString().contains("\\"type\\":\\"direct\\""));
+        assertFalse(root.toString().contains("direct"));
         assertEquals("fhg-proxy",VpnConfig.selectedTag(
             VpnConfig.withSelected(chosen,"fhg-proxy")));
     }
@@ -115,7 +115,7 @@ public class VpnConfigTest {
         JSONObject root=new JSONObject(VpnConfig.parse(input));
         assertEquals("tun",root.getJSONArray("inbounds").getJSONObject(0).getString("type"));
         assertTrue(root.getJSONObject("route").getString("final").startsWith("node-1"));
-        assertFalse(root.toString().contains("\"type\":\"direct\""));
+        assertFalse(root.toString().contains("direct"));
     }
 
     @Test public void htmlSubscriptionRejectedClearly() {

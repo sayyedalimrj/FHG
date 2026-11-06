@@ -788,82 +788,11 @@ internal static class Program
 
     private static void TryCreateDesktopShortcuts()
     {
-        // The signed installer already manages desktop and Start Menu links.
-        // Avoid duplicate icons under CommonDesktop after first-run elevation.
-        if (File.Exists(Path.Combine(Root, "unins000.exe")))
-        {
-            Log("FHG installer manages shortcuts; launcher will not duplicate them.");
-            return;
-        }
-        // If launched with an alternate Administrator identity the per-user
-        // Desktop would point to the administrator's account instead of the
-        // person who requested FHG. Install to the public Desktop for that
-        // one elevated launch; future unelevated launches will reuse it.
-        bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
-            .IsInRole(WindowsBuiltInRole.Administrator);
-        string publicDesktop = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
-        string ownDesktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-        string desktop = elevated && Directory.Exists(publicDesktop) ? publicDesktop : ownDesktop;
-        if (string.IsNullOrWhiteSpace(desktop) || !Directory.Exists(desktop))
-        {
-            Log("Desktop shortcuts unavailable: no writable Desktop folder could be resolved.");
-            return;
-        }
-        Log("Creating FHG shortcuts in " + (desktop == publicDesktop ? "CommonDesktop" : "UserDesktop"));
-
-        Type? cls = Type.GetTypeFromProgID("WScript.Shell");
-        if (cls is null)
-        {
-            Log("Desktop shortcut: Windows Script Host COM class is unavailable.");
-            return;
-        }
-
-        // Different names AND different native icons; both start the trusted
-        // launcher, never expose the internal raw proxy binary directly.
-        foreach (var entry in new[] {
-            (Name: "FHG Firefox", Args: "", Description: "FHG isolated Firefox browser (ChatGPT)", Icon: FirefoxExe),
-            (Name: "FHG Proxy", Args: "--proxy-only", Description: "FHG Proxy: subscriptions, nodes and latency", Icon: HiddifyExe),
-            (Name: "FHG Accounts", Args: "--accounts", Description: "Switch ChatGPT account and subscription", Icon: Path.Combine(Root, "FHGAccountManager.exe"))
-        })
-        {
-            string link = Path.Combine(desktop, entry.Name + ".lnk");
-            try
-            {
-                // Don't make duplicate icons on a user's Desktop after the
-                // elevated first-run created an all-users desktop shortcut.
-                if (!elevated && File.Exists(Path.Combine(publicDesktop, entry.Name + ".lnk")) &&
-                    !File.Exists(link))
-                {
-                    Log("Shortcut already visible from CommonDesktop: " + entry.Name);
-                    continue;
-                }
-                dynamic shell = Activator.CreateInstance(cls)!;
-                dynamic shortcut = shell.CreateShortcut(link);
-                if (File.Exists(link))
-                {
-                    string previous = shortcut.TargetPath as string ?? "";
-                    string filename = Path.GetFileName(previous);
-                    if (!filename.Equals("FHG.exe", StringComparison.OrdinalIgnoreCase) &&
-                        !filename.Equals("FHGProxy.exe", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Log("Shortcut left unchanged because it belongs to another application: " + entry.Name);
-                        continue;
-                    }
-                }
-                shortcut.TargetPath = Path.Combine(Root, "FHG.exe");
-                shortcut.Arguments = entry.Args;
-                shortcut.WorkingDirectory = Root;
-                shortcut.IconLocation = (File.Exists(entry.Icon) ? entry.Icon : Path.Combine(Root, "FHG.exe")) + ",0";
-                shortcut.Description = entry.Description;
-                shortcut.Save();
-                if (!File.Exists(link)) Log("Shortcut not created despite COM Save(): " + entry.Name);
-                else Log("Desktop shortcut ready: " + entry.Name);
-            }
-            catch (Exception e)
-            {
-                Log("Desktop shortcut " + entry.Name + " error: " + e.GetType().Name + ": " + e.Message);
-            }
-        }
+        // Shared shortcut manager updates existing FHG links for the active
+        // account. FHG Firefox points DIRECTLY to Firefox/firefox.exe with
+        // the exact per-account profile; it never targets FHG.exe.
+        if (!ShortcutManager.Sync(Root, AccountPaths.ActiveId))
+            Log("FHG shortcut refresh unavailable; browser protection remains unchanged.");
     }
 
     private static void Warn(string text) =>

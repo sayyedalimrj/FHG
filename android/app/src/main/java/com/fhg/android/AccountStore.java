@@ -184,6 +184,46 @@ final class AccountStore {
         return newAccount;
     }
 
+
+    /**
+     * Persist the generated sing-box tunnel config only inside a separate
+     * Android Keystore-encrypted file; NEVER pass passwords through Intents,
+     * logs, world-readable files or plain SharedPreferences.
+     */
+    synchronized void saveVpnConfig(String accountId, String config) throws Exception {
+        if (!accountId.matches("[0-9a-fA-F\\-]{36}") ||
+            config == null || config.length() > 2000000)
+            throw new IllegalArgumentException("Invalid VPN config");
+        if (load().stream().noneMatch(a -> a.id.equals(accountId)))
+            throw new IllegalStateException("Unknown account");
+        AtomicFile file = new AtomicFile(
+            new File(context.getNoBackupFilesDir(), "vpn-" + accountId + ".aesgcm"));
+        byte[] data = config.getBytes(StandardCharsets.UTF_8);
+        byte[] payload = seal(data);
+        java.util.Arrays.fill(data, (byte)0);
+        java.io.FileOutputStream out = null;
+        try {
+            out = file.startWrite();
+            out.write(payload);
+            file.finishWrite(out);
+        } catch (Exception error) {
+            if (out != null) file.failWrite(out);
+            throw error;
+        }
+    }
+
+    synchronized String loadVpnConfig(String accountId) throws Exception {
+        if (accountId == null || !accountId.matches("[0-9a-fA-F\\-]{36}"))
+            throw new IllegalArgumentException("Invalid account ID");
+        AtomicFile file = new AtomicFile(
+            new File(context.getNoBackupFilesDir(), "vpn-" + accountId + ".aesgcm"));
+        if (!file.getBaseFile().exists())
+            throw new java.io.FileNotFoundException("VPN configuration not yet imported");
+        byte[] decoded = unseal(file.readFully());
+        try { return new String(decoded, StandardCharsets.UTF_8); }
+        finally { java.util.Arrays.fill(decoded, (byte)0); }
+    }
+
     synchronized void updatePassword(String id, String password) throws Exception {
         if (password == null || password.isEmpty()) return;
         ArrayList<Account> accounts = new ArrayList<>(load());

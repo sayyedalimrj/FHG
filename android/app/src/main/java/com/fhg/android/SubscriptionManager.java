@@ -59,6 +59,20 @@ final class SubscriptionManager {
                     String format = identify(raw);
                     String config=VpnConfig.parse(raw);
                     if (config.length()>2_000_000)throw new Exception("CONFIG_TOO_LARGE");
+                    // Preserve a selected location after provider refresh
+                    // only when its exact tag still exists in the new profile.
+                    try {
+                        AccountStore store=new AccountStore(context);
+                        if(store.hasVpnConfig(account.id)) {
+                            String previous=store.loadVpnConfig(account.id);
+                            String wanted=VpnConfig.selectedTag(previous);
+                            if(VpnConfig.selectableTags(config).contains(wanted) ||
+                                "fhg-proxy".equals(wanted))
+                                config=VpnConfig.withSelected(config,wanted);
+                        }
+                    } catch(Exception ignored) {
+                        // Fall back to the validated provider default.
+                    }
                     Profile parsed=new Profile(config,format);
                     try {
                         VpnEngineSetup.validate(context,config);

@@ -158,6 +158,14 @@ internal static class Program
                 return 5;
             }
             Directory.CreateDirectory(ProfileDir);
+            if (AccountPaths.ActiveId is string activeAccountId &&
+                !SyncOriginalAuthenticator(activeAccountId))
+            {
+                Warn("The original Firefox Authenticator could not be safely synchronized.\n\n" +
+                     "Close FHG Firefox and try again. Other Firefox installations are unaffected. " +
+                     "No existing Authenticator accounts were erased.");
+                return 14;
+            }
             InstallChatGptStartTile();
             var browser = new ProcessStartInfo(FirefoxExe)
             {
@@ -393,6 +401,41 @@ internal static class Program
         catch (Exception e)
         {
             Log("TOTP packaging verification failed (" + e.GetType().Name + "): " + e.Message);
+            return false;
+        }
+    }
+
+    private static bool SyncOriginalAuthenticator(string activeId)
+    {
+        string helperExe = Path.Combine(Root, "FHGAuthenticatorSync.exe");
+        if (!File.Exists(helperExe)) { Log("Original Authenticator Sync executable missing."); return false; }
+        try
+        {
+            var info = new ProcessStartInfo(helperExe)
+            {
+                WorkingDirectory = Root,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            info.ArgumentList.Add("--account");
+            info.ArgumentList.Add(activeId);
+            using var process = Process.Start(info);
+            if (process is null) return false;
+            if (!process.WaitForExit(25000))
+            {
+                try { process.Kill(); } catch { }
+                Log("Original Authenticator Sync timeout.");
+                return false;
+            }
+            // The helper prints only statuses and never emits secrets or OTPs.
+            Log("Original Authenticator sync status " + process.ExitCode);
+            return process.ExitCode == 0;
+        }
+        catch (Exception e)
+        {
+            Log("Original Authenticator Sync failed (" + e.GetType().Name + ").");
             return false;
         }
     }

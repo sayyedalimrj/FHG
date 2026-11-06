@@ -2,7 +2,7 @@ package com.fhg.android;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -10,6 +10,10 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -22,18 +26,28 @@ import org.mozilla.geckoview.GeckoSessionSettings;
 import org.mozilla.geckoview.GeckoView;
 
 import java.net.URI;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Locale;
 
 /**
- * Real GeckoView browser, separate cookie/storage jar per selected FHG user.
- * No form submission automation, CAPTCHA solvers, fingerprint spoofing,
- * or direct-fallback network path.
+ * A single GeckoView browser task; every account has its own persistent
+ * contextId. Official Login Autocomplete is scoped to the CURRENT active
+ * account, and no concurrent browser Activity can replace the delegate.
  *
- * Per-app protection gates every session on VPN network capabilities. The
- * device-wide OS Kill Switch must ALSO be configured on Hiddify by the user.
+ * The user's clicks and Captcha/2FA are always manual. OAuth pop-ups share
+ * the SAME view via a bounded GeckoSession stack (no window explosion).
  */
 public final class BrowserActivity extends Activity {
-    private static GeckoRuntime runtime; // GeckoRuntime is one per process
+    private static final int DARK = 0xff0b1528;
+    private static final int PANEL = 0xff172942;
+    private static final int WHITE = 0xfff4f8ff;
+    private static final int MUTED = 0xff99b1cb;
+    private static GeckoRuntime runtime;
+
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final ArrayDeque<GeckoSession> parentSessions = new ArrayDeque<>();
+    private final ArrayList<GeckoSession> sessions = new ArrayList<>();
     private GeckoSession session;
     private GeckoView view;
     private AccountStore store;
@@ -41,177 +55,278 @@ public final class BrowserActivity extends Activity {
     private ConnectivityManager connectivity;
     private ConnectivityManager.NetworkCallback networkCallback;
     private boolean stoppedForVpn;
+    private boolean alertShown;
+    private TextView heading;
+    private TextView connectionLabel;
+
+    private final Runnable vpnGuard = new Runnable() {
+        @Override public void run() {
+            if (!isFinishing()) {
+                recheckVpn();
+                ui.postDelayed(this, 1200);
+            }
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(0xff09172c);
-        getWindow().setNavigationBarColor(0xff09172c);
+        getWindow().setStatusBarColor(DARK);
+        getWindow().setNavigationBarColor(DARK);
         store = new AccountStore(this);
+        if (!loadAccount(getIntent())) return;
+        if (!NetworkGate.vpnActive(this)) {
+            block("اتصال VPN امن FHG برقرار نیست. ابتدا به برنامه برگرد و VPN را وصل کن.");
+            return;
+        }
+        buildBrowser();
+        watchVpn();
+        ui.post(vpnGuard);
+    }
+
+    private boolean loadAccount(Intent intent) {
         try {
-            String requested = getIntent().getStringExtra("account_id");
-            account = store.selected();
-            if (account == null || !account.id.equals(requested)) {
-                finish(); // another account was selected after browser launch
-                return;
+            String requested = intent == null ? null : intent.getStringExtra("account_id");
+            AccountStore.Account current = store.selected();
+            if (current == null || !current.id.equals(requested)) {
+                finish();
+                return false;
             }
-            if (!NetworkGate.vpnActive(this)) {
-                block("No VPN detected. Connect Hiddify before opening ChatGPT.");
-                return;
-            }
-            buildBrowser();
-            watchVpn();
-        } catch (Exception e) {
-            // No secrets, URLs, or page body appear in logs or errors.
-            block("Browser account storage is unavailable. Existing data has not been deleted.");
+            account = current;
+            return true;
+        } catch (Exception failure) {
+            block("خزانه حساب در دسترس نیست. اطلاعات قدیمی حذف نشده‌اند.");
+            return false;
         }
     }
 
-    private int dp(int x) {
-        return (int)(getResources().getDisplayMetrics().density * x + .5f);
+    // Single-task Activity receives new intents rather than creating a
+    // second GeckoRuntime delegate that might leak another account's secrets.
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        String previous = account == null ? "" : account.id;
+        if (!loadAccount(intent)) return;
+        if (!previous.equals(account.id)) {
+            shutdownBrowser();
+            stoppedForVpn=false;
+            if (NetworkGate.vpnActive(this)) buildBrowser();
+            else block("VPN برای حساب جدید متصل نیست.");
+        } else if (session != null) {
+            session.loadUri("https://chatgpt.com/");
+        }
     }
 
-    private static String allowedOrigin(String input) {
-        if (input == null) return null;
-        String host;
-        try {
-            if (input.contains("://")) {
-                URI uri = new URI(input);
-                if (!"https".equalsIgnoreCase(uri.getScheme())) return null;
-                host = uri.getHost();
-            } else host = input;
-            if (host == null) return null;
-            host = host.toLowerCase(Locale.ROOT);
-            if ("auth.openai.com".equals(host) ||
-                "chatgpt.com".equals(host)) return "https://" + host;
-        } catch (Exception ignored) { }
-        return null; // never offer secrets to suffix-alike or http domains
+    private int dp(int px) {
+        return (int) (getResources().getDisplayMetrics().density * px + .5f);
     }
 
-    private Autocomplete.LoginEntry login(String origin) {
-        return new Autocomplete.LoginEntry.Builder()
-                .origin(origin)
-                .username(account.email)
-                .password(account.password)
-                .build();
+    private static GradientDrawable rounded(int color, int radius) {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(radius);
+        return bg;
+    }
+
+    private Button toolButton(String content, String description, Runnable action) {
+        Button b = new Button(this);
+        b.setText(content);
+        b.setContentDescription(description);
+        b.setTextSize(19);
+        b.setAllCaps(false);
+        b.setTextColor(WHITE);
+        b.setBackground(rounded(PANEL, dp(12)));
+        b.setMinWidth(dp(48));
+        b.setMinHeight(dp(48));
+        b.setOnClickListener(v -> action.run());
+        return b;
     }
 
     private void buildBrowser() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setBackgroundColor(0xff09172c);
-        setContentView(layout);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setBackgroundColor(DARK);
+        page.setPadding(dp(8), dp(8), dp(8), dp(4));
+        setContentView(page);
 
-        LinearLayout toolbar = new LinearLayout(this);
-        toolbar.setOrientation(LinearLayout.HORIZONTAL);
-        toolbar.setPadding(dp(8), dp(6), dp(8), dp(6));
-        toolbar.setBackgroundColor(0xff132d4c);
-        layout.addView(toolbar, new LinearLayout.LayoutParams(-1, dp(58)));
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setPadding(dp(3), dp(2), dp(3), dp(2));
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setBackground(rounded(PANEL, dp(16)));
+        page.addView(bar, new LinearLayout.LayoutParams(-1, dp(64)));
 
-        Button back = toolButton("‹", () -> {
-            if (session != null) session.goBack();
-        });
-        toolbar.addView(back, new LinearLayout.LayoutParams(dp(46), -1));
-
-        TextView label = new TextView(this);
-        label.setText("🔒  ChatGPT  •  " + account.email);
-        label.setTextSize(12);
-        label.setTextColor(0xffcfe9f4);
-        label.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        label.setSingleLine(true);
-        label.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        toolbar.addView(label, new LinearLayout.LayoutParams(0, -1, 1));
-
-        toolbar.addView(toolButton("↻", () -> {
+        bar.addView(toolButton("‹", "بازگشت در مرورگر", this::goBack),
+                new LinearLayout.LayoutParams(dp(50), dp(50)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.setPadding(dp(9), 0, dp(8), 0);
+        bar.addView(labels, new LinearLayout.LayoutParams(0, dp(52), 1));
+        heading = new TextView(this);
+        heading.setText("ChatGPT   /   FHG");
+        heading.setTextSize(14);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heading.setTextColor(WHITE);
+        heading.setSingleLine(true);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        labels.addView(heading, new LinearLayout.LayoutParams(-1, 0, 1));
+        connectionLabel = new TextView(this);
+        connectionLabel.setText("🔒  " + account.email);
+        connectionLabel.setTextColor(MUTED);
+        connectionLabel.setTextSize(11);
+        connectionLabel.setSingleLine(true);
+        connectionLabel.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        labels.addView(connectionLabel, new LinearLayout.LayoutParams(-1, 0, 1));
+        bar.addView(toolButton("↻", "بارگذاری دوباره صفحه", () -> {
             if (session != null) session.reload();
-        }), new LinearLayout.LayoutParams(dp(45), -1));
-        toolbar.addView(toolButton("⌂", () -> {
+        }), new LinearLayout.LayoutParams(dp(50), dp(50)));
+        bar.addView(toolButton("⌂", "صفحه اصلی ChatGPT", () -> {
             if (session != null) session.loadUri("https://chatgpt.com/");
-        }), new LinearLayout.LayoutParams(dp(45), -1));
+        }), new LinearLayout.LayoutParams(dp(50), dp(50)));
 
         view = new GeckoView(this);
-        layout.addView(view, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1);
+        lp.topMargin=dp(8);
+        page.addView(view, lp);
+
         if (runtime == null)
-            runtime = GeckoRuntime.create(this.getApplicationContext());
-
+            runtime = GeckoRuntime.create(getApplicationContext());
         runtime.getSettings().setLoginAutofillEnabled(true);
-        runtime.setAutocompleteStorageDelegate(new Autocomplete.StorageDelegate() {
-            @Override
-            public GeckoResult<Autocomplete.LoginEntry[]> onLoginFetch(String domain) {
-                String origin = allowedOrigin(domain);
-                if (origin == null)
-                    return GeckoResult.fromValue(new Autocomplete.LoginEntry[0]);
-                return GeckoResult.fromValue(new Autocomplete.LoginEntry[] { login(origin) });
-            }
-
-            @Override
-            public GeckoResult<Autocomplete.LoginEntry[]> onLoginFetch() {
-                return GeckoResult.fromValue(new Autocomplete.LoginEntry[] {
-                    login("https://auth.openai.com"),
-                    login("https://chatgpt.com")
-                });
-            }
-
-            @Override
-            public void onLoginSave(Autocomplete.LoginEntry entry) {
-                // User already submitted a real official form. Store modified
-                // passwords automatically in Android Keystore; no Save prompt.
-                if (allowedOrigin(entry.origin) == null ||
-                    !account.email.equalsIgnoreCase(entry.username) ||
-                    entry.password.isEmpty()) return;
-                try {
-                    store.updatePassword(account.id, entry.password);
-                    account = store.selected();
-                } catch (Exception ignored) {
-                    // A failed save must not silently destroy the previous key.
-                }
-            }
-        });
-
-        GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
-                .contextId(account.id)
-                .usePrivateMode(false) // isolated PERSISTENT cookies, not private-mode eviction
-                .useTrackingProtection(true)
-                .build();
-
-        session = new GeckoSession(settings);
-        session.setContentDelegate(new GeckoSession.ContentDelegate() { });
-        session.setPromptDelegate(new GeckoSession.PromptDelegate() {
-            @Override
-            public GeckoResult<GeckoSession.PromptDelegate.PromptResponse> onLoginSave(
-                    GeckoSession current,
-                    GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSaveOption> request) {
-                // Confirm ONLY official first-party login stores. All other
-                // origins remain unhandled and receive no account secrets.
-                if (request.options.length == 1 &&
-                    allowedOrigin(request.options[0].value.origin) != null &&
-                    account.email.equalsIgnoreCase(request.options[0].value.username)) {
-                    return GeckoResult.fromValue(request.confirm(request.options[0]));
-                }
-                return GeckoResult.fromValue(request.dismiss());
-            }
-        });
-        session.open(runtime);
+        installSecureAutofill();
+        session = makeSession();
         view.setSession(session);
         session.loadUri("https://chatgpt.com/login");
     }
 
-    private Button toolButton(String text, Runnable handler) {
-        Button button = new Button(this);
-        button.setText(text);
-        button.setTextSize(22);
-        button.setTextColor(Color.WHITE);
-        button.setAllCaps(false);
-        button.setBackgroundColor(0xff132d4c);
-        button.setOnClickListener(v -> handler.run());
-        return button;
+    private GeckoSession makeSession() {
+        GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
+            .contextId(account.id).usePrivateMode(false)
+            .useTrackingProtection(true).build();
+        GeckoSession child = new GeckoSession(settings);
+        child.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
+            @Override public GeckoResult<GeckoSession> onNewSession(
+                    GeckoSession current, String uri) {
+                // Important for Google/Microsoft sign-in and manual challenges,
+                // but do not create extra Android Activities / loose windows.
+                if (sessions.size() >= 4 || !NetworkGate.vpnActive(BrowserActivity.this))
+                    return null;
+                GeckoSession newSession = makeSession();
+                parentSessions.push(current);
+                session = newSession;
+                view.setSession(newSession);
+                return GeckoResult.fromValue(newSession);
+            }
+        });
+        child.setContentDelegate(new GeckoSession.ContentDelegate() {
+            @Override public void onCloseRequest(GeckoSession closing) {
+                if (closing == session && !parentSessions.isEmpty()) {
+                    GeckoSession parent = parentSessions.pop();
+                    session = parent;
+                    view.setSession(parent);
+                    closeChild(closing);
+                } else if (closing == session) {
+                    finish();
+                }
+            }
+        });
+        child.setPromptDelegate(new GeckoSession.PromptDelegate() {
+            @Override public GeckoResult<GeckoSession.PromptDelegate.PromptResponse>
+                onLoginSave(GeckoSession current,
+                    GeckoSession.PromptDelegate.AutocompleteRequest<Autocomplete.LoginSaveOption> request) {
+                if (request.options != null && request.options.length == 1) {
+                    Autocomplete.LoginEntry input = request.options[0].value;
+                    if (allowedOrigin(input.origin) != null &&
+                        account != null &&
+                        account.email.equalsIgnoreCase(input.username)) {
+                        return GeckoResult.fromValue(request.confirm(request.options[0]));
+                    }
+                }
+                return GeckoResult.fromValue(request.dismiss());
+            }
+        });
+        child.open(runtime);
+        sessions.add(child);
+        return child;
+    }
+
+    private static String allowedOrigin(String input) {
+        if (input == null) return null;
+        try {
+            String hostname;
+            if (input.contains("://")) {
+                URI u = new URI(input);
+                if (!"https".equalsIgnoreCase(u.getScheme()) ||
+                    u.getUserInfo() != null ||
+                    (u.getPort() != -1 && u.getPort() != 443))
+                    return null;
+                hostname = u.getHost();
+            } else hostname = input;
+            if (hostname == null) return null;
+            String host = hostname.toLowerCase(Locale.ROOT);
+            if ("auth.openai.com".equals(host) ||
+                "chatgpt.com".equals(host))
+                return "https://" + host;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private Autocomplete.LoginEntry login(String origin) {
+        return new Autocomplete.LoginEntry.Builder()
+            .origin(origin).username(account.email).password(account.password)
+            .build();
+    }
+
+    private void installSecureAutofill() {
+        runtime.setAutocompleteStorageDelegate(new Autocomplete.StorageDelegate() {
+            @Override public GeckoResult<Autocomplete.LoginEntry[]> onLoginFetch(String domain) {
+                String origin = allowedOrigin(domain);
+                if (origin == null || account == null)
+                    return GeckoResult.fromValue(new Autocomplete.LoginEntry[0]);
+                return GeckoResult.fromValue(new Autocomplete.LoginEntry[]{login(origin)});
+            }
+            @Override public GeckoResult<Autocomplete.LoginEntry[]> onLoginFetch() {
+                if (account == null)
+                    return GeckoResult.fromValue(new Autocomplete.LoginEntry[0]);
+                return GeckoResult.fromValue(new Autocomplete.LoginEntry[]{
+                    login("https://chatgpt.com"), login("https://auth.openai.com")});
+            }
+            @Override public void onLoginSave(Autocomplete.LoginEntry entry) {
+                if (account == null || entry == null ||
+                    allowedOrigin(entry.origin) == null ||
+                    !account.email.equalsIgnoreCase(entry.username) ||
+                    entry.password == null || entry.password.isEmpty())return;
+                try {
+                    // Saves the real password the user typed and submitted on
+                    // an official site, not an invented automation result.
+                    store.updatePassword(account.id, entry.password);
+                    AccountStore.Account updated = store.selected();
+                    if (updated != null && updated.id.equals(account.id)) account = updated;
+                } catch(Exception ignored){}
+            }
+        });
+    }
+
+    private void goBack() {
+        if (session == null) return;
+        if (!parentSessions.isEmpty()) {
+            GeckoSession close = session;
+            session = parentSessions.pop();
+            view.setSession(session);
+            closeChild(close);
+        } else session.goBack();
+    }
+
+    private void closeChild(GeckoSession child) {
+        sessions.remove(child);
+        try {child.close();}catch(Exception ignored){}
     }
 
     private void watchVpn() {
-        connectivity = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        networkCallback = new ConnectivityManager.NetworkCallback() {
+        connectivity=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+        if(connectivity == null)return;
+        networkCallback=new ConnectivityManager.NetworkCallback() {
             @Override public void onAvailable(Network network) { recheckVpn(); }
             @Override public void onLost(Network network) { recheckVpn(); }
-            @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities capabilities) {
+            @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) {
                 recheckVpn();
             }
         };
@@ -219,43 +334,61 @@ public final class BrowserActivity extends Activity {
     }
 
     private void recheckVpn() {
-        runOnUiThread(() -> {
+        ui.post(() -> {
             if (!NetworkGate.vpnActive(this) && !stoppedForVpn) {
                 stoppedForVpn = true;
-                // Close Gecko's network requests immediately, rather than
-                // leaving a loaded tab ready for a direct-route fallback.
-                if (session != null) {
-                    try { session.close(); } catch (Exception ignored) {}
-                    session = null;
-                }
-                block("VPN disconnected. All browser sessions were closed. Reconnect Hiddify.");
+                shutdownBrowser();
+                block("اتصال VPN تأییدشده قطع شده است. مرورگر برای جلوگیری از اتصال مستقیم بسته شد.");
             }
         });
     }
 
+    private void shutdownBrowser() {
+        if (view != null) {
+            try {view.releaseSession();}catch(Exception ignored){}
+        }
+        for (GeckoSession current : new ArrayList<>(sessions)) closeChild(current);
+        sessions.clear();
+        parentSessions.clear();
+        session=null;
+    }
+
     private void block(String message) {
-        if (isFinishing()) return;
+        if (isFinishing() || alertShown) return;
+        alertShown = true;
         new AlertDialog.Builder(this)
-            .setTitle("FHG network protection")
+            .setTitle("حفاظت شبکه FHG")
             .setMessage(message)
             .setCancelable(false)
-            .setPositiveButton("Back to accounts", (dialog, which) -> finish())
+            .setPositiveButton("بازگشت", (dialog, which) -> finish())
             .show();
     }
 
     @Override protected void onResume() {
         super.onResume();
+        if (account != null) {
+            try {
+                AccountStore.Account selected = store.selected();
+                if (selected == null || !selected.id.equals(account.id)) {
+                    shutdownBrowser();
+                    finish();
+                    return;
+                }
+            } catch(Exception e) { shutdownBrowser();finish();return; }
+        }
         if (session != null) recheckVpn();
     }
 
     @Override protected void onDestroy() {
+        ui.removeCallbacksAndMessages(null);
         if (connectivity != null && networkCallback != null) {
             try { connectivity.unregisterNetworkCallback(networkCallback); }
-            catch (Exception ignored) { }
+            catch(Exception ignored){}
         }
-        if (session != null) {
-            try { session.close(); } catch (Exception ignored) { }
-        }
+        shutdownBrowser();
+        // Avoid retaining the previous account's credentials via the
+        // process-global GeckoRuntime delegate across Activity destruction.
+        if (runtime != null) runtime.setAutocompleteStorageDelegate(null);
         super.onDestroy();
     }
 }

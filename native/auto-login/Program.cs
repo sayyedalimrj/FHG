@@ -85,10 +85,16 @@ internal static class Program
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_FIRST_SYNC:" + first);
                 return 54;
             }
-            Thread.Sleep(1600);
-            // The second pass must find the imported seed in the extension's
-            // OWN storage and report zero new accounts (idempotence).
-            string second = AuthenticatorUiImporter.Sync(driver, new [] { fake });
+            // TextImport intentionally closes its browser tab on completion.
+            // End the W3C session and reopen the SAME Firefox profile to
+            // verify that the signed extension truly persisted the account.
+            driver.Dispose();
+            Thread.Sleep(1200);
+            using var verify = new FirefoxDriverBridge(
+                Path.Combine(Root, "WebDriver", "geckodriver.exe"),
+                Path.Combine(Root, "Firefox", "firefox.exe"),
+                temporaryProfile);
+            string second = AuthenticatorUiImporter.Sync(verify, new [] { fake });
             if (second != "OK:0") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
                 return 55;

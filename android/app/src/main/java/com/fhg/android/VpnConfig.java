@@ -282,7 +282,11 @@ final class VpnConfig {
         root.put("inbounds",inputs);
         JSONArray outs=new JSONArray();
         JSONArray names=new JSONArray();
-        for(JSONObject n:nodes){
+        for(int i=0;i<nodes.size();i++){
+            JSONObject n=nodes.get(i);
+            // Every imported format must have a unique tag. Clash YAML
+            // does not include native sing-box "tag" fields.
+            n.put("tag","node-"+(i+1));
             outs.put(n);
             names.put(n.getString("tag"));
         }

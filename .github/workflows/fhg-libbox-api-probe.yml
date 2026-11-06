@@ -1,0 +1,33 @@
+name: Probe pinned libbox public Android API
+on:
+  push:
+    branches: [android-fix-sub-vpn-ui-20261106]
+    paths: ['.github/workflows/fhg-libbox-api-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Inspect pinned verified libbox APIs and native ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 'https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar' -o /tmp/libbox.aar
+          echo 'd2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  /tmp/libbox.aar' | sha256sum -c -
+          unzip -p /tmp/libbox.aar classes.jar > /tmp/libbox.jar
+          echo '==== All libbox classes ===='
+          jar tf /tmp/libbox.jar | grep '^io/nekohasekai/libbox/' | sed -n '1,170p'
+          for cls in Libbox SetupOptions CommandServer CommandServerHandler PlatformInterface TunOptions NetworkInterface NetworkInterfaceIterator StringIterator OverrideOptions CommandClientOptions; do
+            echo "==== javap $cls ===="
+            javap -classpath /tmp/libbox.jar -public "io.nekohasekai.libbox.$cls" || true
+          done
+          echo '==== architectures ===='
+          unzip -Z1 /tmp/libbox.aar | grep -E 'libgo.so|jni/' | head -40

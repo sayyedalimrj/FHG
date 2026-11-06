@@ -28,7 +28,13 @@ final class VpnConfig {
     private static final String PROBE = "https://cp.cloudflare.com/";
 
     private static String decode(String value) {
-        return URLDecoder.decode(value.replace("+", "%2B"), StandardCharsets.UTF_8);
+        try {
+            // URLDecoder.decode(String, Charset) was added to Android API 33.
+            // This legacy overload works all the way back to our API 26 floor.
+            return URLDecoder.decode(value.replace("+", "%2B"), "UTF-8");
+        } catch (java.io.UnsupportedEncodingException impossible) {
+            throw new IllegalStateException("UTF-8 unavailable");
+        }
     }
 
     private static Map<String,String> params(String query) {

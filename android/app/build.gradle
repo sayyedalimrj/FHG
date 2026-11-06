@@ -35,6 +35,17 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events 'failed', 'passed', 'skipped'
+                exceptionFormat 'full'
+                showStackTraces true
+                showCauses true
+            }
+        }
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging true

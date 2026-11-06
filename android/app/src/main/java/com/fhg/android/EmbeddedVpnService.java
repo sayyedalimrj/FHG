@@ -358,8 +358,19 @@ public final class EmbeddedVpnService extends VpnService
                 NetworkCapabilities.NET_CAPABILITY_NOT_METERED));
             List<String> addresses = new ArrayList<>();
             for (java.net.InterfaceAddress ia : physical.getInterfaceAddresses()) {
-                if (ia.getAddress() != null)
-                    addresses.add(ia.getAddress().getHostAddress() + "/" + ia.getNetworkPrefixLength());
+                if (ia.getAddress() == null) continue;
+                try {
+                    // Important on Samsung/Android 16: Inet6Address may
+                    // expose fe80::...%wlan0. Go's libbox uses
+                    // netip.MustParsePrefix and *panics the process* when a
+                    // scoped zone is present in CIDR input.
+                    addresses.add(NetworkAddressSanitizer.cidr(
+                        ia.getAddress(), ia.getNetworkPrefixLength()));
+                } catch (IllegalArgumentException invalidOsPrefix) {
+                    // Never hand invalid prefixes to a native MustParse.
+                    // Do not log the interface's actual IP address.
+                    Log.w(TAG,"SKIPPED_INVALID_PLATFORM_INTERFACE_PREFIX");
+                }
             }
             info.setAddresses(strings(addresses));
             List<String> dns = new ArrayList<>();

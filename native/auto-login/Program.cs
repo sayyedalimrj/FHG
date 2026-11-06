@@ -16,6 +16,8 @@ internal static class Program
     {
         if (args.Length == 1 && args[0] == "--self-test-driver")
             return SelfTestDriver();
+        if (args.Length == 2 && args[0] == "--save-password")
+            return OfflinePasswordImport(args[1]);
         if (args.Length != 2 || args[0] != "--account" ||
             !AccountVault.ValidId(args[1]))
             return 31;
@@ -53,6 +55,49 @@ internal static class Program
         }
     }
 
+    // The ONLY invoked production mode: write to Firefox's built-in
+    // password manager, offline. The normal ChatGPT sign-in stays 100%
+    // human-driven. The old --account automation mode is unreachable from
+    // the FHG launcher and is not used for user sign-in.
+    private static int OfflinePasswordImport(string accountId)
+    {
+        if (!AccountVault.ValidId(accountId) ||
+            AccountVault.ActiveId() != accountId) return 31;
+        FhgAccount? account;
+        try { account = AccountVault.Load().SingleOrDefault(a => a.Id == accountId); }
+        catch { return 31; }
+        if (account == null ||
+            !TrustedLoginPage.LooksLikeRealAccount(account.Label))
+            return 22;
+        string root = AppContext.BaseDirectory;
+        string profile = AccountVault.AccountFirefoxDir(accountId);
+        string accountRoot = Path.GetFullPath(AccountVault.Root)
+            .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!Path.GetFullPath(profile).StartsWith(accountRoot,
+            StringComparison.OrdinalIgnoreCase) || !Directory.Exists(profile))
+            return 30;
+        try
+        {
+            // Launch a headless *offline* Firefox session in the same private
+            // account profile; this code never navigates to ChatGPT.
+            using var browser = new FirefoxDriverBridge(
+                Path.Combine(root, "WebDriver", "geckodriver.exe"),
+                Path.Combine(root, "Firefox", "firefox.exe"),
+                profile, headless: true);
+            bool imported = FirefoxPasswordStore.Import(browser,
+                account.Label, account.Password);
+            Console.WriteLine(imported
+                ? "FHG_PASSWORD_STORE:VERIFIED"
+                : "FHG_PASSWORD_STORE:UNAVAILABLE");
+            return imported ? 0 : 32;
+        }
+        catch
+        {
+            Console.WriteLine("FHG_PASSWORD_STORE:UNAVAILABLE");
+            return 32;
+        }
+    }
+
     private static int SelfTestDriver()
     {
         // CI only: synthetic local data URI, no user vault or network login.
@@ -83,6 +128,8 @@ internal static class Program
             var fake = new FhgAccount(dummyId, "test@ci.invalid",
                 "NEVER-A-REAL-PASSWORD", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
                 "https://example.invalid/unused", DateTimeOffset.UtcNow);
+            if (!FirefoxPasswordStore.Import(driver, fake.Label, fake.Password))
+                return 56; // NSS-backed Firefox Login Manager unavailable
             string first = OriginalAuthenticatorBrowserSync.Sync(driver, new [] { fake });
             if (first != "OK:1") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_FIRST_SYNC:" + first);
@@ -96,12 +143,14 @@ internal static class Program
                 Path.Combine(Root, "WebDriver", "geckodriver.exe"),
                 Path.Combine(Root, "Firefox", "firefox.exe"),
                 temporaryProfile);
+            if (!FirefoxPasswordStore.Import(verify, fake.Label, fake.Password))
+                return 57; // imported credential did not persist encrypted
             string second = OriginalAuthenticatorBrowserSync.Sync(verify, new [] { fake });
             if (second != "OK:0") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
                 return 55;
             }
-            Console.WriteLine("PASS: bundled Firefox WebDriver and original Authenticator import-page automation");
+            Console.WriteLine("PASS: original Authenticator plus encrypted Firefox NSS password import persisted offline");
             return 0;
         }
         catch (Exception) { return 53; }

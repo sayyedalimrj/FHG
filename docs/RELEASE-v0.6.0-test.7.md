@@ -16,8 +16,8 @@
 ## Original Authenticator fix
 
 - Removes the old SQLite/IndexedDB patching action from the new user interface and removes the launcher startup block that incorrectly presented `Authenticator storage needs review`.
-- In the local browser automation session, opens the **existing signed Authenticator's own Text Import UI**, checks its storage for existing matching TOTP accounts and uses its built-in importer to add only missing accounts. This supports the original extension's storage.local and storage.sync decisions without patching the XPI or modifying databases offline.
-- Windows CI must demonstrate a synthetic account imported into the original addon in the bundled Firefox and a subsequent import recognizes the account, before this release is published.
+- In the local browser automation session, opens the **existing signed Authenticator's own extension page**, uses its Firefox `browser.storage` API for the configured Local/Sync area, merges only missing FHG-managed records, and reads them back to verify persistence. This does not patch the XPI or modify SQLite/IndexedDB directly.
+- Windows CI must demonstrate a synthetic account written to the signed original add-on and recognized after closing and reopening Firefox, with zero duplicate additions, before this release is published.
 - A profile with a passphrase-encrypted Authenticator may require unlocking the extension. The importer will not bypass a master password.
 - The FHG vault is kept encrypted via Windows CurrentUser DPAPI. No seed, password or subscription URL is written to a WebDriver log or process arguments.
 

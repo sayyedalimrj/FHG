@@ -10,8 +10,15 @@ android {
         applicationId 'com.fhg.android.embedded'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '0.2.1-embedded-vpn-beta'
+        versionCode 4
+        versionName '0.2.2-arm64-beta'
+
+        // One architecture only: Android phones with 64-bit ARM CPUs.
+        // Strips x86, x86_64 and 32-bit ARM native engines (libbox and
+        // GeckoView) from the delivered APK; no VPN/browser code removed.
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
 
     buildTypes {

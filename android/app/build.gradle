@@ -7,11 +7,11 @@ android {
     compileSdk 37
 
     defaultConfig {
-        applicationId 'com.fhg.android.embedded'
+        applicationId 'com.fhg.android.repair'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '0.2.2-arm64-beta'
+        versionCode 5
+        versionName '0.2.3-repair-beta'
 
         // One architecture only: Android phones with 64-bit ARM CPUs.
         // Strips x86, x86_64 and 32-bit ARM native engines (libbox and
@@ -48,4 +48,6 @@ dependencies {
     testImplementation 'org.json:json:20250517'
     // GPLv3 libbox: pinned official release, downloaded and hash-checked by CI.
     implementation files('libs/libbox.aar')
+    // Apache 2.0: parse common Clash YAML subscriptions without code execution.
+    implementation 'org.yaml:snakeyaml:2.5'
 }

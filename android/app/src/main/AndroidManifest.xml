@@ -9,7 +9,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="FHG Android"
+        android:label="FHG Secure"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:icon="@drawable/fhg_icon"
         android:supportsRtl="true">
@@ -24,6 +24,7 @@
         </service>
         <activity
             android:name=".BrowserActivity"
+            android:launchMode="singleTask"
             android:exported="false"
             android:windowSoftInputMode="adjustResize"/>
         <activity

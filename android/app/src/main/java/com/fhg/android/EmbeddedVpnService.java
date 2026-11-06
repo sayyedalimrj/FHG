@@ -127,6 +127,8 @@ public final class EmbeddedVpnService extends VpnService
             status("FAILED", "VPN_PERMISSION_REQUIRED");
             stopSelf(); return START_NOT_STICKY;
         }
+        if (TUN_UP.get() || VERIFIED.get())
+            return START_STICKY; // Never start two native VPN instances.
         if (!STARTING.compareAndSet(false, true)) return START_STICKY;
         VERIFIED.set(false);
         TUN_UP.set(false);
@@ -183,27 +185,35 @@ public final class EmbeddedVpnService extends VpnService
         // An established TUN by itself is not evidence of a usable proxy.
         // The HTTPS probe goes through normal Android routing, never protect().
         int attempts = 0;
-        while (!stopping && attempts++ < 12) {
-            HttpURLConnection connection = null;
-            try {
-                Thread.sleep(1800);
-                if (!TUN_UP.get()) return;
-                connection = (HttpURLConnection)new URL(
-                    "https://cp.cloudflare.com/generate_204").openConnection();
-                connection.setConnectTimeout(6500);
-                connection.setReadTimeout(6500);
-                connection.setUseCaches(false);
-                connection.setInstanceFollowRedirects(false);
-                int response = connection.getResponseCode();
-                if (response == 204 && !stopping && TUN_UP.get()) {
-                    VERIFIED.set(true);
-                    status("CONNECTED", "");
-                    return;
+        final String[] probes = {
+            "https://cp.cloudflare.com/generate_204",
+            "https://www.gstatic.com/generate_204"
+        };
+        while (!stopping && attempts++ < 8) {
+            try { Thread.sleep(1500); }
+            catch (InterruptedException e) { return; }
+            if (!TUN_UP.get()) return;
+            for (String target : probes) {
+                if (stopping || !TUN_UP.get()) return;
+                HttpURLConnection connection = null;
+                try {
+                    connection = (HttpURLConnection)new URL(target).openConnection();
+                    connection.setConnectTimeout(4500);
+                    connection.setReadTimeout(4500);
+                    connection.setUseCaches(false);
+                    connection.setInstanceFollowRedirects(false);
+                    int response = connection.getResponseCode();
+                    if (response == 204 && !stopping && TUN_UP.get()) {
+                        VERIFIED.set(true);
+                        status("CONNECTED", "");
+                        return;
+                    }
+                } catch (Exception ignored) {
+                    // Neither exception text nor endpoint IP should appear
+                    // in user diagnostics.
+                } finally {
+                    if (connection != null) connection.disconnect();
                 }
-            } catch (Exception ignored) {
-                // Report only that the server cannot yet be reached.
-            } finally {
-                if (connection != null) connection.disconnect();
             }
             status("CHECKING", "PROXY_NOT_REACHABLE");
         }

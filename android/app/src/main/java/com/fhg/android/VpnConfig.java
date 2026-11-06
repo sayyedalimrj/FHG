@@ -103,7 +103,13 @@ final class VpnConfig {
                 // subscription. If none work, the importer reports an error.
                 continue;
             }
-            outbound.put("tag","node-"+row);
+            // Keep provider-advertised location names for the server picker.
+            // These are display labels, never URLs or credentials.
+            int hash=link.indexOf('#');
+            if (hash>=0 && hash+1<link.length()) {
+                try { outbound.put("tag",decode(link.substring(hash+1))); }
+                catch (RuntimeException ignored) {}
+            }
             outbounds.add(outbound);
         }
         if (outbounds.isEmpty())
@@ -236,6 +242,7 @@ final class VpnConfig {
         JSONObject node=new JSONObject().put("type","vmess").put("server",host)
             .put("server_port",port).put("uuid",x.getString("id"))
             .put("security",x.optString("scy","auto")).put("alter_id",x.optInt("aid",0));
+        node.put("tag",x.optString("ps",""));
         String network=x.optString("net","tcp");
         Map<String,String> q=new LinkedHashMap<>();
         q.put("type",network);
@@ -292,9 +299,13 @@ final class VpnConfig {
             JSONObject n=nodes.get(i);
             // Every imported format must have a unique tag. Clash YAML
             // does not include native sing-box "tag" fields.
-            n.put("tag","node-"+(i+1));
+            String description=n.optString("tag","").replaceAll("[\\p{Cntrl}]"," ")
+                .replaceAll("\\s+"," ").trim();
+            if(description.length()>64)description=description.substring(0,64).trim();
+            String tag="node-"+(i+1)+(description.isEmpty()?"":" · "+description);
+            n.put("tag",tag);
             outs.put(n);
-            names.put(n.getString("tag"));
+            names.put(tag);
         }
         if(nodes.size()>1){
             outs.put(new JSONObject().put("type","urltest").put("tag","fhg-proxy")
@@ -309,6 +320,52 @@ final class VpnConfig {
                 .put("type","https").put("tag","encrypted")
                 .put("server","1.1.1.1").put("detour",finalTag)))
             .put("final","encrypted").put("strategy","prefer_ipv4"));
+        return root.toString();
+    }
+
+    /** Server tags are derived from provider labels but contain no credentials. */
+    static List<String> selectableTags(String json) throws Exception {
+        JSONObject root=new JSONObject(json);
+        JSONArray out=root.getJSONArray("outbounds");
+        ArrayList<String> tags=new ArrayList<>();
+        for(int i=0;i<out.length();i++) {
+            JSONObject item=out.getJSONObject(i);
+            String type=item.optString("type","");
+            String tag=item.optString("tag","");
+            if(tag.startsWith("node-") && ("vless".equals(type) ||
+                "vmess".equals(type) || "trojan".equals(type) ||
+                "shadowsocks".equals(type) || "hysteria2".equals(type) ||
+                "tuic".equals(type))) tags.add(tag);
+        }
+        return tags;
+    }
+
+    static String selectedTag(String json) throws Exception {
+        return new JSONObject(json).getJSONObject("route").getString("final");
+    }
+
+    /** A route switch never changes provider credentials or permits DIRECT. */
+    static String withSelected(String json,String selected) throws Exception {
+        JSONObject root=new JSONObject(json);
+        JSONArray out=root.getJSONArray("outbounds");
+        List<String> allowed=selectableTags(json);
+        boolean automatic=false;
+        for(int i=0;i<out.length();i++) {
+            JSONObject node=out.getJSONObject(i);
+            if("urltest".equals(node.optString("type")) &&
+                "fhg-proxy".equals(node.optString("tag"))) automatic=true;
+        }
+        if(!allowed.contains(selected) &&
+            !(automatic && "fhg-proxy".equals(selected)))
+            throw new IllegalArgumentException("INVALID_SERVER_SELECTION");
+        root.getJSONObject("route").put("final",selected);
+        JSONObject dns=root.getJSONObject("dns");
+        JSONArray servers=dns.getJSONArray("servers");
+        for(int i=0;i<servers.length();i++) {
+            JSONObject server=servers.getJSONObject(i);
+            if("encrypted".equals(server.optString("tag")))
+                server.put("detour",selected);
+        }
         return root.toString();
     }
 

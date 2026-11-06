@@ -530,6 +530,16 @@ internal static class Program
                 Log("Offline Firefox password import unavailable, status " + helper.ExitCode);
                 return false;
             }
+            // Wait for NSS profile locks to clear after the HEADLESS helper.
+            // Do not race the ordinary Firefox launch against geckodriver
+            // shutdown: that race caused an apparently missing main window.
+            for (int i = 0; i < 60 && IsProfileInUse(ProfileDir); i++)
+                Thread.Sleep(200);
+            if (IsProfileInUse(ProfileDir))
+            {
+                Log("Firefox password imported, but profile remains locked after helper exit.");
+                return false;
+            }
             // Marker reveals no email/password/hash and is safe to remove
             // when the selected credentials are edited.
             Directory.CreateDirectory(Path.GetDirectoryName(marker)!);

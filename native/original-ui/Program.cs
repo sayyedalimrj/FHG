@@ -230,15 +230,17 @@ internal static class Program
                 using var firefox = Process.Start(browser);
                 if (firefox != null && !firefox.WaitForExit(1400))
                 {
-                    Log("FHG user-facing Firefox window started and remained open.");
+                    try { LoginProgress.Write(activeLoginId, "SUCCESS"); } catch { }
+                    Log("FHG user-facing Firefox window started after verified login.");
                     return 0;
                 }
                 Log("FHG user-facing Firefox exited on attempt " + attempt + "; retrying safely.");
                 Thread.Sleep(2000 * attempt);
             }
-            Warn("FHG Firefox could not stay open after automatic sign-in. " +
-                 "Your account data and browser profile have NOT been deleted. " +
-                 "Review the local FHG log for diagnostics.");
+            try { LoginProgress.Write(activeLoginId, "HANDOFF_FAILED"); } catch { }
+            Warn("ChatGPT login was VERIFIED, but normal Firefox could not stay open. " +
+                 "Your account and browser profile have NOT been deleted. " +
+                 "Review the FHG diagnostic log; do not re-enter your password blindly.");
             return 7;
         }
         catch (Exception ex)

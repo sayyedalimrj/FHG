@@ -1,0 +1,38 @@
+name: Verify original Authenticator storage integration
+on:
+  push:
+    branches:
+      - fix-original-authenticator-storage-20261106
+    paths:
+      - 'native/authenticator-sync/**'
+      - 'native/authenticator-sync-tests/**'
+      - 'native/account-manager/**'
+      - '.github/workflows/verify-original-authenticator-storage.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Verify Mozilla SQLite schema compatibility with synthetic data
+        shell: pwsh
+        run: |
+          dotnet run --project native/authenticator-sync-tests/FHG.AuthenticatorSync.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Original Authenticator regression failed' }
+      - name: Build self-contained Windows sync helper
+        shell: pwsh
+        run: |
+          dotnet publish native/authenticator-sync/FHGAuthenticatorSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-auth-sync
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticator sync binary failed to compile' }
+          if (!(Test-Path publish-auth-sync/FHGAuthenticatorSync.exe)) { throw 'Sync helper not built' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-original-authenticator-sync-verified
+          path: publish-auth-sync/FHGAuthenticatorSync.exe
+          retention-days: 7

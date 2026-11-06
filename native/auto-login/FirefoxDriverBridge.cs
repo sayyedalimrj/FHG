@@ -224,6 +224,13 @@ internal sealed class FirefoxDriverBridge : IDisposable
         Request(HttpMethod.Post, PathFor("element/" + safe + "/value"), new { text = value });
     }
 
+    public string? ElementValue(string id)
+    {
+        var value = Request(HttpMethod.Get, PathFor("element/" +
+            Uri.EscapeDataString(id) + "/property/value"));
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
     public void Click(string id) =>
         Request(HttpMethod.Post, PathFor("element/" + Uri.EscapeDataString(id) + "/click"), new {});
 

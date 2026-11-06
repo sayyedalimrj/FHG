@@ -66,7 +66,8 @@ final class ClashSubscription {
                 continue;
             endpoint(host,port);
             JSONObject node=new JSONObject().put("type","ss".equals(type)?"shadowsocks":type)
-                .put("server",host).put("server_port",port);
+                .put("server",host).put("server_port",port)
+                .put("tag",str(p,"name",""));
             switch(type) {
                 case "vless":
                     node.put("uuid",str(p,"uuid",""));

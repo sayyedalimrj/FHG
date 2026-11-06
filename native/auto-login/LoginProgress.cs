@@ -10,7 +10,8 @@ internal static class LoginProgress
     {
         "NOT_STARTED", "STARTING", "EMAIL_SUBMITTED",
         "PASSWORD_SUBMITTED", "TOTP_SUBMITTED",
-        "MANUAL_REQUIRED", "MANUAL_CHALLENGE", "VERIFYING",
+        "EMAIL_READY", "PASSWORD_READY", "TOTP_READY",
+        "MANUAL_REQUIRED", "MANUAL_CHALLENGE", "MANUAL_BROWSER", "VERIFYING",
         "SUCCESS", "HANDOFF_FAILED", "CANCELED", "ERROR"
     };
 
@@ -51,6 +52,10 @@ internal static class LoginProgress
     internal static string Display(string code) => code switch
     {
         "STARTING" => "Signing in: opening the protected browser",
+        "EMAIL_READY" => "Email entered — click Continue in Firefox",
+        "PASSWORD_READY" => "Password entered — click Continue yourself",
+        "TOTP_READY" => "2FA code entered — click Continue yourself",
+        "MANUAL_BROWSER" => "Security verification: complete login in normal Firefox",
         "EMAIL_SUBMITTED" => "Email submitted automatically — waiting for password",
         "PASSWORD_SUBMITTED" => "Password submitted — waiting for verification",
         "TOTP_SUBMITTED" => "2FA code submitted — waiting for ChatGPT",

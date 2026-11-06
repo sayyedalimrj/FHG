@@ -44,6 +44,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "stage\FHG.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\FHGGuard.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\FHGAccountManager.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "stage\FHGAuthenticatorSync.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "stage\Firefox\*"; DestDir: "{app}\Firefox"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\Hiddify\*"; DestDir: "{app}\Hiddify"; Excludes: "*.py,*.pyc,*.pdb"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "stage\licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion recursesubdirs

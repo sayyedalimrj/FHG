@@ -28,6 +28,11 @@ jobs:
             dotnet run --project $project -c Release
             if ($LASTEXITCODE -ne 0) { throw "Regression tests failed: $project" }
           }
+          $entrypoint=Get-Content native/auto-login/Program.cs -Raw
+          if (!$entrypoint.Contains('OriginalAuthenticatorBrowserSync.Sync') -or
+              $entrypoint.Contains('AuthenticatorUiImporter.Sync')) {
+            throw 'Release must use verified original signed Authenticator API storage route'
+          }
       - name: Build guarded launcher, simplified account manager and Firefox login
         shell: pwsh
         run: |

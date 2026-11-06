@@ -3,7 +3,7 @@ name: FHG Secure Android v1.0.0 RC4 signed release build
 on:
   push:
     branches:
-      - android-rc4-selector-crash-diagnostics-20261106
+      - android-rc3-selector-crash-diagnostics-20261106
     paths:
       - 'android/**'
       - '.github/workflows/fhg-android-v1-rc-release.yml'

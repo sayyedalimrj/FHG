@@ -149,17 +149,27 @@ internal static class Program
                     else whenSubmitted = clock.Elapsed;
                     continue;
                 }
-                // First landing page can have a Log in button but no input.
-                // Navigate to the official ChatGPT login path once.
-                if (!triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(5))
+                // Use the login control rendered by the actual ChatGPT
+                // homepage. Do not deep-link to a server route that may
+                // expect an action/data content-type and render Route Error 400.
+                if (!triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(2))
                 {
                     triedOfficialLogin = true;
-                    browser.GoTo("https://chatgpt.com/auth/login");
-                    continue;
+                    string? loginControl = browser.FindVisible(
+                        "a[href^='/auth/login'], a[href^='/login'], " +
+                        "a[href^='https://chatgpt.com/auth/login'], " +
+                        "button[data-testid='login-button'], a[data-testid='login-button']");
+                    if (loginControl != null)
+                    {
+                        if (TrustedLoginPage.Classify(browser.CurrentUri()) != LoginStage.ChatGptHome)
+                            return 20;
+                        browser.Click(loginControl);
+                        continue;
+                    }
                 }
-                if (triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(25) &&
+                if (triedOfficialLogin && clock.Elapsed > TimeSpan.FromSeconds(12) &&
                     submitted.Count == 0)
-                    return 20; // no recognizable form; don't delay normal browser
+                    return 20; // keep normal Firefox available for manual login
             }
             else if (stage == LoginStage.Email)
             {
@@ -238,11 +248,18 @@ internal static class Program
         try
         {
             browser.Fill(elementId, credential);
+            // Compare the browser input's actual value to the original vault
+            // value. Never append the W3C Enter special key (U+E007), or
+            // silently insert a stray character on the login page.
+            if (!string.Equals(browser.ElementValue(elementId), credential,
+                    StringComparison.Ordinal))
+                return false;
             if (TrustedLoginPage.Classify(browser.CurrentUri()) != expected) return false;
             if (HasChallenge(browser)) return false;
-            var submit = browser.FindVisible("form button[type='submit'], form input[type='submit']");
-            if (submit != null) browser.Click(submit);
-            else browser.Enter(elementId);
+            var submit = browser.FindVisible(
+                "form button[type='submit'], form input[type='submit']");
+            if (submit == null) return false; // leave manual form visible
+            browser.Click(submit);
             return true;
         }
         catch (InvalidOperationException)

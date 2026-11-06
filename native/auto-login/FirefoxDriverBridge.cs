@@ -34,6 +34,9 @@ internal sealed class FirefoxDriverBridge : IDisposable
             RedirectStandardError = true,
             WorkingDirectory = System.IO.Path.GetDirectoryName(driverExecutable)!
         };
+        // Required since Firefox 138 for automated access to Mozilla-owned
+        // extension pages. The session remains localhost-only and temporary.
+        info.ArgumentList.Add("--allow-system-access");
         info.ArgumentList.Add("--host");
         info.ArgumentList.Add("127.0.0.1");
         info.ArgumentList.Add("--port");
@@ -123,6 +126,22 @@ internal sealed class FirefoxDriverBridge : IDisposable
 
     public void GoTo(string url) =>
         Request(HttpMethod.Post, PathFor("url"), new { url });
+
+    public void SetContext(string context)
+    {
+        if (context != "chrome" && context != "content")
+            throw new ArgumentException("Invalid Marionette context");
+        Request(HttpMethod.Post, PathFor("moz/context"), new { context });
+    }
+
+    public JsonElement ExecuteScript(string script, params object[] args) =>
+        Request(HttpMethod.Post, PathFor("execute/sync"), new { script, args });
+
+    public JsonElement ExecuteAsyncScript(string script, params object[] args)
+    {
+        Request(HttpMethod.Post, PathFor("timeouts"), new { script = 15000 });
+        return Request(HttpMethod.Post, PathFor("execute/async"), new { script, args });
+    }
 
     public Uri? CurrentUri()
     {

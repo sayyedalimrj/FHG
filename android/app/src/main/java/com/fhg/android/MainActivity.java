@@ -64,7 +64,7 @@ public final class MainActivity extends Activity {
     private Button power, browser, advanced, recovery;
     private List<AccountStore.Account> accounts=new ArrayList<>();
     private boolean importing;
-    private boolean connectAfterImport;
+    private int importRevision;
     private boolean syncingSpinner;
     private boolean expanded;
     private String lastImportError="";
@@ -223,6 +223,8 @@ public final class MainActivity extends Activity {
                 try {
                     AccountStore.Account current=vault.selected();
                     if(current!=null&&!current.id.equals(next)){
+                        importRevision++; // Invalidate pending HTTP callback for previous account.
+                        importing=false;
                         disconnect();
                         vault.select(next);
                         lastImportError="";
@@ -427,21 +429,20 @@ public final class MainActivity extends Activity {
 
     private void importSubscription(AccountStore.Account account,boolean connectWhenReady){
         if(importing)return;
-        if(EmbeddedVpnService.isEstablished()){
-            disconnect();
-        }
+        if(EmbeddedVpnService.isTunnelUp()) disconnect();
         importing=true;
-        connectAfterImport=connectWhenReady;
+        final int generation=++importRevision;
         lastImportError="";
         update();
         SubscriptionManager.fetchAsync(this,account,new SubscriptionManager.Result(){
             @Override public void complete(SubscriptionManager.Profile p){
                 runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed()||generation!=importRevision)return;
                     importing=false;
                     lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور  •  "+p.format;
                     lastImportError="";
                     update();
-                    if(connectAfterImport){
+                    if(connectWhenReady){
                         try {
                             AccountStore.Account active=vault.selected();
                             if(active!=null && active.id.equals(account.id))
@@ -451,7 +452,10 @@ public final class MainActivity extends Activity {
                 });
             }
             @Override public void failed(String reason){
-                runOnUiThread(()->{importing=false;error(reason);});
+                runOnUiThread(()->{
+                    if(isFinishing()||isDestroyed()||generation!=importRevision)return;
+                    importing=false;error(reason);
+                });
             }
         });
     }
@@ -573,6 +577,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onResume(){super.onResume(); if(created)loadAccounts(); created=true;}
     @Override protected void onDestroy(){
+        importRevision++; // Ignore any late subscription download response.
         main.removeCallbacksAndMessages(null);
         super.onDestroy();
     }

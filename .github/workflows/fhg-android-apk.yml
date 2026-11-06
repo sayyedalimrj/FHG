@@ -34,7 +34,12 @@ jobs:
           fi
           if [ ! -x "$SDKMANAGER" ]; then echo "Android sdkmanager unavailable" >&2; exit 1; fi
           yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37" "build-tools;36.0.0"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37.0" "build-tools;36.0.0"
+          # Android 17 platforms are distributed with a minor version.
+          # Avoid AGP's fresh-platform resolver inconsistency.
+          if [ -d "$SDK_ROOT/platforms/android-37.0" ] && [ ! -e "$SDK_ROOT/platforms/android-37" ]; then
+            ln -s android-37.0 "$SDK_ROOT/platforms/android-37"
+          fi
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'

@@ -77,17 +77,19 @@ Filename: "{app}\FHGAccountManager.exe"; Description: "Open FHG Accounts and com
 [Code]
 function ActiveAccountId(): String;
 var
-  Raw: String;
+  Raw: AnsiString;
+  IdText: String;
   I: Integer;
 begin
   Result := '';
+  // Inno Setup LoadStringFromFile requires AnsiString output.
   if not LoadStringFromFile(
       ExpandConstant('{localappdata}\FHG\Accounts\active-id.txt'), Raw) then Exit;
-  Raw := Trim(Raw);
-  if Length(Raw) <> 32 then Exit;
-  for I := 1 to Length(Raw) do
-    if Pos(Raw[I], '0123456789abcdef') = 0 then Exit;
-  Result := Raw;
+  IdText := Trim(String(Raw));
+  if Length(IdText) <> 32 then Exit;
+  for I := 1 to Length(IdText) do
+    if Pos(IdText[I], '0123456789abcdef') = 0 then Exit;
+  Result := IdText;
 end;
 
 function HasConfiguredAccount(): Boolean;

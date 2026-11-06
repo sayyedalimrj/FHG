@@ -92,7 +92,13 @@ jobs:
         env:
           FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
         run: |
-          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:lintDebug || {
+            if test -f app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt; then
+              echo '===== Complete Android Lint report ====='
+              sed -n '1,260p' app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            fi
+            exit 1
+          }
       - name: Validate real generated proxy config with pinned sing-box CLI
         shell: bash
         run: |

@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="FHG Secure RC4"
+        android:label="FHG Secure RC5"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:icon="@drawable/fhg_icon"
         android:supportsRtl="true">

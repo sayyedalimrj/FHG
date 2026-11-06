@@ -2,7 +2,6 @@ package com.fhg.android;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -11,447 +10,476 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.net.VpnService;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * One-screen VPN-first UX: select account -> automatic subscription import ->
+ * one Android VPN consent -> verified tunnel -> GeckoView.
+ *
+ * Never claims to install Android system Lockdown (the user must enable it).
+ * No WebDriver, synthetic clicks, or online authentication automation.
+ */
 public final class MainActivity extends Activity {
-    private static final int PICK_CONFIG = 41;
-    private static final int PICK_VPN_CONFIG = 42;
-    private static final int VPN_PERMISSION = 43;
-    private static final int NAVY = 0xff0b1528;
-    private static final int SURFACE = 0xff12233d;
-    private static final int TEAL = 0xff45dec6;
-    private static final int MUTED = 0xff8da6c4;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private AccountStore store;
-    private LinearLayout root;
-    private Spinner accountSpinner;
-    private TextView vpnStatus, accountStatus, otpDisplay, hint;
-    private List<AccountStore.Account> accounts;
-    private boolean firstRunPickerShown;
+    private static final int PICK_ACCOUNT=41;
+    private static final int PICK_PROXY_FILE=42;
+    private static final int VPN_CONSENT=43;
+    private static final int BG=0xff0a1426;
+    private static final int SURFACE=0xff17263e;
+    private static final int ACCENT=0xff24c8b6;
+    private static final int INK=0xfff4f8ff;
+    private static final int MUTED=0xffa4b4cb;
+    private static final int WARNING=0xffffb16e;
 
-    @Override public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(NAVY);
-        getWindow().setNavigationBarColor(NAVY);
-        store = new AccountStore(this);
+    private AccountStore vault;
+    private final Handler main=new Handler(Looper.getMainLooper());
+    private LinearLayout root, advancedPanel;
+    private Spinner spinner;
+    private TextView status, caption, accountLabel, profileLabel, otp, inlineError;
+    private ProgressBar pending;
+    private Button power, browser, advanced;
+    private List<AccountStore.Account> accounts=new ArrayList<>();
+    private boolean importing;
+    private boolean connectAfterImport;
+    private boolean syncingSpinner;
+    private boolean expanded;
+    private String lastImportError="";
+    private String lastImportedProfile="";
+    private boolean created;
+
+    private final Runnable poll=new Runnable(){
+        @Override public void run() {
+            if(!isFinishing()) {
+                update();
+                main.postDelayed(this,1000);
+            }
+        }
+    };
+
+    @Override public void onCreate(Bundle saved) {
+        super.onCreate(saved);
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR & 0);
+        vault=new AccountStore(this);
         draw();
-        refresh();
-        handler.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (!isFinishing()) {
-                    refreshStatus();
-                    handler.postDelayed(this, 1000);
-                }
-            }
-        }, 1000);
-        if (savedInstanceState == null) {
+        loadAccounts();
+        main.post(poll);
+        if(saved==null) {
             try {
-                if (store.load().isEmpty()) {
-                    firstRunPickerShown = true;
-                    handler.postDelayed(this::pickConfig, 600);
+                if(vault.load().isEmpty())
+                    main.postDelayed(this::pickAccount,500);
+                else {
+                    AccountStore.Account account=vault.selected();
+                    if(account!=null && !vault.hasVpnConfig(account.id))
+                        main.postDelayed(()->importSubscription(account,false),650);
                 }
-            } catch (Exception ignored) {
-                // Never silently reset a corrupted or locked keystore vault.
-            }
+            } catch(Exception ignored) {}
         }
     }
 
-    private int dp(float n) { return (int)(getResources().getDisplayMetrics().density * n + .5f); }
-
-    private GradientDrawable background(int color, int radiusDp) {
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(radiusDp));
-        return bg;
+    private int dp(int n){return (int)(getResources().getDisplayMetrics().density*n+.5f);}
+    private GradientDrawable shape(int color,int radius){
+        GradientDrawable d=new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(dp(radius));
+        return d;
     }
-
-    private TextView text(String label, int sp, int color, boolean bold) {
-        TextView view = new TextView(this);
-        view.setText(label);
-        view.setTextColor(color);
-        view.setTextSize(sp);
-        if (bold) view.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        view.setGravity(Gravity.CENTER_VERTICAL);
-        return view;
+    private TextView label(String value,int size,int color,boolean bold){
+        TextView t=new TextView(this);
+        t.setText(value);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        if(bold)t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        t.setGravity(Gravity.CENTER_VERTICAL);
+        return t;
     }
-
-    private void attach(LinearLayout container, View child, int height, int margin) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                height < 0 ? height : dp(height));
-        lp.setMargins(0, dp(margin), 0, 0);
-        container.addView(child, lp);
+    private void add(LinearLayout parent,View view,int height,int top){
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,
+            height<0?height:dp(height));
+        params.topMargin=dp(top);
+        parent.addView(view,params);
     }
-
-    private Button button(String caption, int color, Runnable action) {
-        Button button = new Button(this);
-        button.setAllCaps(false);
-        button.setText(caption);
-        button.setTextSize(15);
-        button.setTextColor(Color.WHITE);
-        button.setBackground(background(color, 12));
-        button.setOnClickListener(v -> action.run());
-        return button;
+    private LinearLayout card(){
+        LinearLayout c=new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setPadding(dp(18),dp(17),dp(18),dp(19));
+        c.setBackground(shape(SURFACE,20));
+        return c;
     }
-
-    private LinearLayout card() {
-        LinearLayout block = new LinearLayout(this);
-        block.setPadding(dp(16), dp(15), dp(16), dp(18));
-        block.setOrientation(LinearLayout.VERTICAL);
-        block.setBackground(background(SURFACE, 18));
-        return block;
+    private Button action(String value,int color,Runnable callback){
+        Button b=new Button(this);
+        b.setAllCaps(false);
+        b.setText(value);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(15);
+        b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setBackground(shape(color,13));
+        b.setOnClickListener(v->callback.run());
+        return b;
     }
-
-    private void draw() {
-        ScrollView scroll = new ScrollView(this);
+    private void draw(){
+        ScrollView scroll=new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(NAVY);
-        root = new LinearLayout(this);
+        scroll.setBackgroundColor(BG);
+        root=new LinearLayout(this);
+        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(25), dp(18), dp(25));
-        root.setBackgroundColor(NAVY);
+        root.setPadding(dp(18),dp(22),dp(18),dp(30));
         scroll.addView(root);
         setContentView(scroll);
 
-        TextView title = text("FHG  •  ANDROID", 25, Color.WHITE, true);
-        attach(root, title, 40, 0);
-        TextView subtitle = text("مرورگر خصوصی، حساب‌های محفوظ و VPN داخلی sing-box", 12, MUTED, false);
-        attach(root, subtitle, 32, 0);
+        add(root,label("FHG  /  ANDROID",27,INK,true),39,0);
+        add(root,label("مرورگر خصوصی و VPN یکپارچه",14,MUTED,false),30,0);
 
-        LinearLayout vpn = card();
-        attach(vpn, text("●  وضعیت مسیر اینترنت", 17, TEAL, true), 33, 0);
-        vpnStatus = text("در حال بررسی...", 14, Color.WHITE, false);
-        attach(vpn, vpnStatus, 49, 2);
-        attach(vpn, text("VPN داخلی FHG با موتور sing-box. مرورگر تنها با تونل همین برنامه باز می‌شود.", 12, MUTED, false), 72, 3);
-        attach(vpn, button("▶  اتصال VPN داخلی / AUTO", 0xff4844a9, this::startVpn), 50, 12);
-        attach(vpn, button("↓  دریافت اشتراک چهارخطی و انتخاب سرور", 0xff215e87, this::confirmBootstrap), 50, 8);
-        attach(vpn, button("📁  کانفیگ sing-box از فایل (آفلاین)", 0xff345f77, this::pickVpnConfig), 50, 8);
-        attach(vpn, button("■  قطع اتصال VPN داخلی", 0xff73415f, this::disconnectVpn), 50, 8);
-        attach(vpn, button("فعال‌سازی Always-on / Block without VPN برای FHG", 0xff283f64, this::openVpnSettings), 50, 8);
-        attach(root, vpn, -2, 23);
+        LinearLayout connection=card();
+        add(connection,label("اتصال امن",21,INK,true),36,0);
+        status=label("در حال بررسی وضعیت…",16,ACCENT,true);
+        add(connection,status,43,7);
+        caption=label("ابتدا یک حساب وارد کن. پروفایل VPN خودکار نصب می‌شود.",13,MUTED,false);
+        caption.setMaxLines(3);
+        add(connection,caption,-2,0);
+        pending=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        pending.setIndeterminate(true);
+        pending.setVisibility(View.GONE);
+        add(connection,pending,7,17);
+        power=action("اتصال امن",0xff0a8f83,this::onPower);
+        add(connection,power,55,16);
+        profileLabel=label("پروفایل: نصب نشده",13,MUTED,false);
+        add(connection,profileLabel,38,10);
+        inlineError=label("",12,WARNING,false);
+        inlineError.setMaxLines(4);
+        inlineError.setVisibility(View.GONE);
+        add(connection,inlineError,-2,6);
+        add(root,connection,-2,22);
 
-        LinearLayout account = card();
-        attach(account, text("●  حساب‌ها / ACCOUNTS", 17, TEAL, true), 31, 0);
-        accountSpinner = new Spinner(this);
-        accountSpinner.setBackground(background(0xff1a3553, 10));
-        attach(account, accountSpinner, 50, 8);
-        accountSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                if (accounts != null && position >= 0 && position < accounts.size()) {
-                    store.select(accounts.get(position).id);
-                    refreshStatus();
-                }
+        LinearLayout profile=card();
+        add(profile,label("حساب کاربری",19,INK,true),35,0);
+        spinner=new Spinner(this);
+        spinner.setBackground(shape(0xff223652,10));
+        add(profile,spinner,50,4);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+            @Override public void onNothingSelected(AdapterView<?> parent){}
+            @Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){
+                if(syncingSpinner||accounts.isEmpty()||pos>=accounts.size())return;
+                String next=accounts.get(pos).id;
+                try {
+                    AccountStore.Account current=vault.selected();
+                    if(current!=null&&!current.id.equals(next)){
+                        disconnect();
+                        vault.select(next);
+                        lastImportError="";
+                        lastImportedProfile="";
+                        if(!vault.hasVpnConfig(next))
+                            importSubscription(accounts.get(pos),false);
+                    }
+                }catch(Exception ignored){}
+                update();
             }
         });
-        accountStatus = text("", 12, MUTED, false);
-        attach(account, accountStatus, 44, 5);
-        attach(account, button("📁  واردکردن فایل چهارخطی حساب", 0xff0e7b87, this::pickConfig), 48, 4);
-        otpDisplay = text("2FA: —", 21, Color.WHITE, true);
-        attach(account, otpDisplay, 48, 10);
-        attach(account, button("کپی کد 2FA", 0xff314864, this::copyTotp), 46, 2);
-        attach(root, account, -2, 16);
+        accountLabel=label("حسابی وارد نشده",12,MUTED,false);
+        add(profile,accountLabel,38,5);
+        add(profile,action("افزودن حساب از فایل چهارخطی",0xff254e67,this::pickAccount),50,6);
+        otp=label("کد 2FA: —",22,INK,true);
+        add(profile,otp,44,9);
+        add(profile,action("کپی کد 2FA",0xff32465c,this::copyOtp),45,0);
+        add(root,profile,-2,14);
 
-        LinearLayout browser = card();
-        attach(browser, text("●  مرورگر خصوصی / FIREFOX GECKO", 17, TEAL, true), 37, 0);
-        attach(browser, text("ورود دستی به ChatGPT، تکمیل خودکار ایمیل و رمز از خزانه امن و جداسازی نشست هر حساب.", 13, MUTED, false), 70, 0);
-        attach(browser, button("🌐  ورود به ChatGPT", 0xff157eaa, this::openBrowser), 56, 8);
-        hint = text("ابتدا VPN داخلی FHG را وصل کن.", 12, MUTED, false);
-        attach(browser, hint, 45, 4);
-        attach(root, browser, -2, 16);
+        LinearLayout browsing=card();
+        add(browsing,label("مرورگر اختصاصی",19,INK,true),36,0);
+        add(browsing,label("ورود به ChatGPT دستی است؛ اطلاعات حساب فقط برای دامنه‌های رسمی تکمیل می‌شود.",13,MUTED,false),-2,2);
+        browser=action("ورود به ChatGPT",0xff1773aa,this::openBrowser);
+        add(browsing,browser,55,17);
+        add(root,browsing,-2,14);
 
-        TextView footer = text("FHG Android • 0.2 beta • GeckoView + integrated sing-box VPN", 10, MUTED, false);
-        attach(root, footer, 70, 13);
+        advanced=action("تنظیمات پیشرفته  ▾",0xff27364e,()->{
+            expanded=!expanded;
+            advancedPanel.setVisibility(expanded?View.VISIBLE:View.GONE);
+            advanced.setText(expanded?"بستن تنظیمات  ▴":"تنظیمات پیشرفته  ▾");
+        });
+        add(root,advanced,49,14);
+        advancedPanel=card();
+        advancedPanel.setVisibility(View.GONE);
+        add(advancedPanel,action("به‌روزرسانی اشتراک",0xff295577,()->{
+            try{
+                AccountStore.Account a=vault.selected();
+                if(a==null){pickAccount();return;}
+                importSubscription(a,false);
+            }catch(Exception e){error("ACCOUNT_VAULT_ERROR");}
+        }),48,0);
+        add(advancedPanel,action("ورود کانفیگ از فایل JSON / YAML",0xff295577,this::pickProxyFile),48,8);
+        add(advancedPanel,action("تنظیمات Always-on VPN و Kill Switch",0xff295577,this::openVpnSettings),48,8);
+        add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
+        add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
+        add(root,advancedPanel,-2,7);
+        add(root,label("FHG Android 0.2.3  •  GeckoView  +  sing-box",11,MUTED,false),35,18);
     }
 
-    private void refresh() {
-        try {
-            accounts = store.load();
-            String[] names = accounts.stream().map(a -> a.email).toArray(String[]::new);
-            ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-                    android.R.layout.simple_spinner_dropdown_item,
-                    names.length == 0 ? new String[] { "No accounts yet" } : names);
-            accountSpinner.setAdapter(adapter);
-            AccountStore.Account selected = store.selected();
-            if (selected != null) {
-                for (int i = 0; i < accounts.size(); i++) {
-                    if (accounts.get(i).id.equals(selected.id)) {
-                        accountSpinner.setSelection(i);
-                        break;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            accounts = java.util.Collections.emptyList();
-            accountStatus.setText("خزانه رمز در دسترس نیست؛ داده‌ها پاک نشده‌اند.");
-            new AlertDialog.Builder(this).setTitle("Protected vault")
-                    .setMessage("The encrypted vault cannot be opened. The app will not reset it or replace existing secrets.")
-                    .setPositiveButton("OK", null).show();
+    private void loadAccounts(){
+        try{
+            accounts=vault.load();
+            String[] names=new String[accounts.size()];
+            for(int i=0;i<names.length;i++)names[i]=accounts.get(i).email;
+            if(names.length==0)names=new String[]{"حسابی وارد نشده"};
+            syncingSpinner=true;
+            ArrayAdapter<String> adapter=new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item,names);
+            spinner.setAdapter(adapter);
+            AccountStore.Account chosen=vault.selected();
+            if(chosen!=null)for(int i=0;i<accounts.size();i++)
+                if(chosen.id.equals(accounts.get(i).id)){spinner.setSelection(i);break;}
+            syncingSpinner=false;
+        }catch(Exception failure){
+            error("ACCOUNT_VAULT_ERROR");
         }
-        refreshStatus();
+        update();
     }
 
-    private void refreshStatus() {
-        boolean connected = NetworkGate.vpnActive(this);
-        vpnStatus.setText(connected ? "● تونل داخلی FHG فعال است — مرورگر مجاز" :
-                (EmbeddedVpnService.isStarting() ? "● تونل sing-box در حال اتصال است…" :
-                "● تونل داخلی FHG غیرفعال است — مرورگر مسدود"));
-        vpnStatus.setTextColor(connected ? TEAL : 0xffffaa70);
-        try {
-            AccountStore.Account current = store.selected();
-            if (current == null) {
-                accountStatus.setText("فایل چهارخطی را وارد کن؛ اولین اجرا انتخاب فایل را باز می‌کند.");
-                otpDisplay.setText("2FA: —");
+    private void update(){
+        boolean connected=NetworkGate.vpnActive(this);
+        String state=EmbeddedVpnService.getState();
+        boolean working=importing||EmbeddedVpnService.isStarting()||state.equals("CHECKING");
+        pending.setVisibility(working?View.VISIBLE:View.GONE);
+        status.setText(connected?"متصل • ترافیک VPN بررسی شد":
+            importing?"در حال دریافت و نصب خودکار پروفایل…":
+            state.equals("CHECKING")?"تونل ساخته شد؛ در حال آزمون اینترنت…":
+            state.equals("STARTING")?"در حال راه‌اندازی موتور VPN…":
+            state.equals("FAILED")?"VPN متصل نیست":"آماده اتصال");
+        status.setTextColor(connected?ACCENT:working?0xffffd180:INK);
+        caption.setText(connected?"VPN و مسیر HTTPS آزمون شده‌اند؛ مرورگر آماده است.":
+            importing?"اشتراک در حال دانلود و تبدیل به پروفایل sing-box است.":
+            "تا هنگام تأیید اتصال، دسترسی مرورگر مسدود می‌ماند.");
+        power.setText(connected?"قطع اتصال":"اتصال VPN");
+        power.setEnabled(!working);
+        power.setAlpha(working?.55f:1f);
+        browser.setEnabled(connected);
+        browser.setAlpha(connected?1f:.48f);
+        String failure=lastImportError;
+        if(failure.isEmpty() && state.equals("FAILED"))failure=EmbeddedVpnService.getError();
+        if(!failure.isEmpty()){
+            inlineError.setText("نیاز به بررسی: "+humanError(failure));
+            inlineError.setVisibility(View.VISIBLE);
+        } else inlineError.setVisibility(View.GONE);
+        try{
+            AccountStore.Account account=vault.selected();
+            if(account==null){
+                accountLabel.setText("فایل چهارخطی حساب را انتخاب کن");
+                profileLabel.setText("پروفایل: نصب نشده");
+                otp.setText("2FA: —");
+            } else {
+                accountLabel.setText(account.email);
+                if(!vault.hasVpnConfig(account.id))
+                    profileLabel.setText("پروفایل: هنوز نصب نشده");
+                else if(!lastImportedProfile.isEmpty())
+                    profileLabel.setText(lastImportedProfile);
+                else {
+                    JSONObject config=new JSONObject(vault.loadVpnConfig(account.id));
+                    JSONArray outs=config.getJSONArray("outbounds");
+                    int n=0; for(int i=0;i<outs.length();i++)
+                        if(!"urltest".equals(outs.getJSONObject(i).optString("type")))n++;
+                    profileLabel.setText("پروفایل نصب‌شده  •  "+n+" سرور");
+                }
+                otp.setText(account.totpSecret.isEmpty()?"2FA: —":
+                    "2FA: "+Totp.now(account.totpSecret)+"  ("+
+                    Totp.secondsRemaining()+" ثانیه)");
+            }
+        }catch(Exception e){
+            accountLabel.setText("خزانه اطلاعات در دسترس نیست");
+        }
+    }
+
+    private static String humanError(String code){
+        switch(code){
+            case "SUBSCRIPTION_RETURNED_HTML":return "لینک صفحه وب برگردانده، نه اشتراک خام؛ لینک مستقیم Subscription را وارد کن.";
+            case "SUBSCRIPTION_ACCESS_DENIED":return "سرویس اشتراک، دسترسی را رد کرد (401/403).";
+            case "SUBSCRIPTION_DNS_ERROR":return "آدرس سرویس اشتراک پیدا نشد (DNS).";
+            case "SUBSCRIPTION_TLS_ERROR":return "گواهی امنیتی HTTPS اشتراک معتبر نیست.";
+            case "SUBSCRIPTION_TIMEOUT":return "دریافت اشتراک زمان‌بر شد یا سرور پاسخ نمی‌دهد.";
+            case "NO_SUPPORTED_PROXY_NODES":return "اشتراک سرور سازگار پیدا نکرد.";
+            case "JSON_HAS_NO_SUPPORTED_PROXY":return "فایل JSON سرور قابل‌پشتیبانی ندارد.";
+            case "YAML_REMOTE_PROVIDER_UNSUPPORTED":return "این Clash YAML فقط به proxy-provider دیگری اشاره می‌کند.";
+            case "PROXY_NOT_REACHABLE":return "اینترفیس VPN برقرار شد ولی خروجی HTTPS از تونل پاسخ نداد.";
+            case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
+            case "LIBBOX_START_ERROR":return "موتور sing-box پیکربندی را اجرا نکرد؛ پروفایل یا شبکه نیاز به بررسی دارد.";
+            case "PROFILE_MISSING":return "پروفایل VPN برای حساب انتخاب‌شده نصب نشده.";
+            case "FOREGROUND_SERVICE_ERROR":return "اندروید اجرای سرویس VPN در پس‌زمینه را رد کرد.";
+            default:return "اتصال یا اشتراک معتبر نیست ("+code+").";
+        }
+    }
+
+    private void error(String code){ lastImportError=code; update(); }
+
+    private void pickAccount(){
+        Intent file=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        file.setType("*/*");
+        file.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(file,PICK_ACCOUNT);
+    }
+    private void pickProxyFile(){
+        Intent file=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        file.setType("*/*");
+        file.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(file,PICK_PROXY_FILE);
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request==VPN_CONSENT){
+            if(result==RESULT_OK)startVpnService();
+            else error("VPN_PERMISSION_REQUIRED");
+            return;
+        }
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(request==PICK_ACCOUNT){
+            try(InputStream stream=getContentResolver().openInputStream(data.getData())){
+                if(stream==null)throw new IllegalArgumentException();
+                AccountStore.Account account=vault.importFourLines(stream);
+                loadAccounts();
+                // Required user behavior: automatically install the subscription
+                // and open Android's VPN consent after the four-line file.
+                importSubscription(account,true);
+            }catch(Exception failure){error("ACCOUNT_IMPORT_INVALID");}
+        }else if(request==PICK_PROXY_FILE)importLocal(data.getData());
+    }
+
+    private void importSubscription(AccountStore.Account account,boolean connectWhenReady){
+        if(importing)return;
+        if(EmbeddedVpnService.isEstablished()){
+            disconnect();
+        }
+        importing=true;
+        connectAfterImport=connectWhenReady;
+        lastImportError="";
+        update();
+        SubscriptionManager.fetchAsync(this,account,new SubscriptionManager.Result(){
+            @Override public void complete(SubscriptionManager.Profile p){
+                runOnUiThread(()->{
+                    importing=false;
+                    lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور  •  "+p.format;
+                    lastImportError="";
+                    update();
+                    if(connectAfterImport)connectVpn();
+                });
+            }
+            @Override public void failed(String reason){
+                runOnUiThread(()->{importing=false;error(reason);});
+            }
+        });
+    }
+
+    private void importLocal(Uri uri){
+        new Thread(()->{
+            try(InputStream stream=getContentResolver().openInputStream(uri)){
+                if(stream==null)throw new Exception("No local file");
+                ByteArrayOutputStream data=new ByteArrayOutputStream();
+                byte[] buf=new byte[4096];int len;
+                while((len=stream.read(buf))!=-1){
+                    if(data.size()+len>1_000_000)throw new Exception("Too large");
+                    data.write(buf,0,len);
+                }
+                AccountStore.Account account=vault.selected();
+                if(account==null)throw new Exception("No account");
+                SubscriptionManager.Profile p=SubscriptionManager.importLocal(this,
+                    account.id,data.toString("UTF-8"));
+                runOnUiThread(()->{
+                    lastImportedProfile="پروفایل نصب شد  •  "+p.proxies+" سرور";
+                    lastImportError="";
+                    update();
+                    connectVpn();
+                });
+            }catch(Exception e){
+                runOnUiThread(()->error("LOCAL_PROFILE_INVALID"));
+            }
+        },"fhg-local-profile").start();
+    }
+
+    private void onPower(){
+        if(NetworkGate.vpnActive(this))disconnect(); else connectVpn();
+    }
+    private void connectVpn(){
+        try{
+            AccountStore.Account account=vault.selected();
+            if(account==null){pickAccount();return;}
+            if(!vault.hasVpnConfig(account.id)){
+                importSubscription(account,true);
                 return;
             }
-            accountStatus.setText("حساب انتخاب‌شده: " + current.email +
-                    "  •  نشست خصوصی جداگانه");
-            if (current.totpSecret.isEmpty()) {
-                otpDisplay.setText("2FA: not configured");
-            } else {
-                otpDisplay.setText("2FA: " + Totp.now(current.totpSecret) +
-                        "    (" + Totp.secondsRemaining() + "s)");
-            }
-            hint.setText(connected ? "تونل داخلی فعال است؛ وارد ChatGPT شو." :
-                    "برای حفاظت، تونل داخلی FHG را وصل کن و Lockdown را فعال نگه دار.");
-        } catch (Exception e) {
-            otpDisplay.setText("2FA: unavailable");
-        }
+            Intent permission=VpnService.prepare(this);
+            if(permission!=null)startActivityForResult(permission,VPN_CONSENT);
+            else startVpnService();
+        }catch(Exception failure){error("ACCOUNT_VAULT_ERROR");}
     }
-
-    private void pickVpnConfig() {
-        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("*/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent,PICK_VPN_CONFIG);
+    private void startVpnService(){
+        Intent connect=new Intent(this,EmbeddedVpnService.class);
+        connect.setAction(EmbeddedVpnService.ACTION_CONNECT);
+        try{
+            if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(connect);
+            else startService(connect);
+        }catch(Exception e){error("FOREGROUND_SERVICE_ERROR");}
     }
-
-    private void pickConfig() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.setType("*/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        startActivityForResult(intent, PICK_CONFIG);
-    }
-
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == VPN_PERMISSION) {
-            if (resultCode == RESULT_OK) launchVpnService();
-            else explain("VPN permission denied", "No tunnel was started and FHG browser remains blocked.");
-            return;
-        }
-        if (requestCode == PICK_VPN_CONFIG && resultCode == RESULT_OK && data != null) {
-            importVpnFile(data.getData());
-            return;
-        }
-        if (requestCode != PICK_CONFIG || resultCode != RESULT_OK || data == null) return;
-        try (InputStream stream = getContentResolver().openInputStream(data.getData())) {
-            if (stream == null) throw new Exception("No file contents");
-            store.importFourLines(stream);
-            refresh();
-            new AlertDialog.Builder(this).setTitle("Account imported")
-                    .setMessage("Secrets are stored encrypted in the Android Keystore. No file is uploaded.")
-                    .setPositiveButton("OK", null).show();
-        } catch (Exception e) {
-            new AlertDialog.Builder(this).setTitle("Import failed")
-                    .setMessage("Check the four-line file format. Existing accounts remain unchanged.")
-                    .setPositiveButton("OK", null).show();
-        }
-    }
-
-
-    private void explain(String title,String message) {
-        new AlertDialog.Builder(this).setTitle(title).setMessage(message)
-            .setPositiveButton("OK",null).show();
-    }
-
-    private void confirmBootstrap() {
-        try {
-            AccountStore.Account selected = store.selected();
-            if (selected == null) { pickConfig(); return; }
-            // First import may be before any VPN tunnel can exist. This is
-            // explicit user consent to a single HTTPS bootstrap request;
-            // no hidden direct reconnect or transparent HTTP fallback.
-            new AlertDialog.Builder(this).setTitle("Download proxy subscription")
-                .setMessage("This initial subscription download may use the current connection before FHG VPN starts. Your private HTTPS subscription URL is sent only to its configured server. Continue?")
-                .setPositiveButton("Download once", (d,w) -> downloadSubscription(selected))
-                .setNegativeButton("Cancel",null).show();
-        } catch (Exception e) { explain("Vault unavailable","Unable to read selected account."); }
-    }
-
-    private void downloadSubscription(AccountStore.Account selected) {
-        new Thread(() -> {
-            try {
-                String target = selected.subscription;
-                if(!target.startsWith("https://")) throw new IllegalArgumentException("HTTPS subscription required");
-                String text = null;
-                for(int redirect=0;redirect<=2;redirect++) {
-                    java.net.URL url = new java.net.URL(target);
-                    if(!"https".equalsIgnoreCase(url.getProtocol())) throw new SecurityException("HTTPS only");
-                    java.net.HttpURLConnection conn=(java.net.HttpURLConnection)url.openConnection();
-                    conn.setConnectTimeout(12000);
-                    conn.setReadTimeout(16000);
-                    conn.setInstanceFollowRedirects(false);
-                    conn.setRequestProperty("User-Agent","FHG-Android/0.2");
-                    try {
-                        int status=conn.getResponseCode();
-                        if(status>=300 && status<400 && redirect<2) {
-                            String location=conn.getHeaderField("Location");
-                            java.net.URI resolved=new java.net.URI(target).resolve(location);
-                            if(!"https".equalsIgnoreCase(resolved.getScheme()))
-                                throw new SecurityException("Cross-scheme redirect refused");
-                            target=resolved.toString();
-                            continue;
-                        }
-                        if(status!=200)throw new IllegalStateException("Subscription HTTP status "+status);
-                        try(InputStream input=conn.getInputStream()) {
-                            java.io.ByteArrayOutputStream bounded=new java.io.ByteArrayOutputStream();
-                            byte[] buf=new byte[8192]; int n;
-                            while((n=input.read(buf))>=0) {
-                                if(bounded.size()+n>1000000) throw new Exception("Subscription is too large");
-                                bounded.write(buf,0,n);
-                            }
-                            text=bounded.toString("UTF-8");
-                        }
-                        break;
-                    } finally { conn.disconnect(); }
-                }
-                if(text==null)throw new Exception("HTTPS redirect limit");
-                String config=VpnConfig.parse(text);
-                store.saveVpnConfig(selected.id,config);
-                runOnUiThread(() -> explain("Subscription ready",
-                    "Embedded sing-box config encrypted successfully. Press Connect FHG VPN. Unsupported nodes were not given a direct bypass."));
-            } catch(Exception e) {
-                runOnUiThread(() -> explain("Import failed",
-                    "Subscription unsupported or unavailable. Import a local sing-box JSON configuration or a VLESS/Trojan/VMess/SS subscription. No direct VPN fallback was enabled."));
-            }
-        },"fhg-bootstrap-subscription").start();
-    }
-
-    private void importVpnFile(Uri uri) {
-        new Thread(() -> {
-            try {
-                AccountStore.Account selected=store.selected();
-                if(selected==null)throw new Exception("No account");
-                byte[] bytes;
-                try(InputStream input=getContentResolver().openInputStream(uri)) {
-                    if(input==null)throw new Exception("Unreadable file");
-                    java.io.ByteArrayOutputStream buffer=new java.io.ByteArrayOutputStream();
-                    byte[] tmp=new byte[8192]; int n;
-                    while((n=input.read(tmp))>=0) {
-                        if(buffer.size()+n>1000000)throw new Exception("Config too large");
-                        buffer.write(tmp,0,n);
-                    }
-                    bytes=buffer.toByteArray();
-                }
-                String config=VpnConfig.parse(new String(bytes,java.nio.charset.StandardCharsets.UTF_8));
-                java.util.Arrays.fill(bytes,(byte)0);
-                store.saveVpnConfig(selected.id,config);
-                runOnUiThread(() -> explain("VPN configuration imported",
-                    "The configuration is saved encrypted and ready for the internal VPN."));
-            } catch(Exception e) {
-                runOnUiThread(() -> explain("VPN import failed",
-                    "Import a supported subscription or safe sing-box JSON config; existing account data is preserved."));
-            }
-        },"fhg-import-config").start();
-    }
-
-    private void startVpn() {
-        try {
-            AccountStore.Account selected=store.selected();
-            if(selected==null){pickConfig();return;}
-            store.loadVpnConfig(selected.id);
-        } catch(java.io.FileNotFoundException missing) {
-            new AlertDialog.Builder(this).setTitle("VPN configuration missing")
-                .setMessage("Download the subscription from the existing four-line account file or import a sing-box JSON config first.")
-                .setPositiveButton("Download subscription",(d,w)->confirmBootstrap())
-                .setNeutralButton("Import JSON",(d,w)->pickVpnConfig())
-                .setNegativeButton("Cancel",null).show();
-            return;
-        } catch(Exception e) {
-            explain("Encrypted VPN config unavailable","The saved configuration could not be decrypted. It has NOT been deleted.");
-            return;
-        }
-        Intent consent=android.net.VpnService.prepare(this);
-        if(consent!=null)startActivityForResult(consent,VPN_PERMISSION);
-        else launchVpnService();
-    }
-
-    private void launchVpnService() {
-        Intent start=new Intent(this,EmbeddedVpnService.class);
-        start.setAction(EmbeddedVpnService.ACTION_CONNECT);
-        try {
-            if(android.os.Build.VERSION.SDK_INT>=26)startForegroundService(start);
-            else startService(start);
-            android.widget.Toast.makeText(this,"Starting internal VPN…",
-                android.widget.Toast.LENGTH_SHORT).show();
-        } catch(Exception e) {
-            explain("VPN service unavailable","The secure tunnel could not start. Browser remains blocked.");
-        }
-    }
-
-    private void disconnectVpn() {
+    private void disconnect(){
         Intent stop=new Intent(this,EmbeddedVpnService.class);
         stop.setAction(EmbeddedVpnService.ACTION_DISCONNECT);
-        startService(stop);
-        handler.postDelayed(this::refreshStatus,500);
+        try{startService(stop);}catch(Exception ignored){}
+        lastImportError="";
+        main.postDelayed(this::update,600);
     }
-
-    private void openVpnSettings() {
-        try {
-            startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));
-        } catch (Exception e) {
-            startActivity(new Intent(Settings.ACTION_SETTINGS));
+    private void openVpnSettings(){
+        try{startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));}
+        catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}
+    }
+    private void openBrowser(){
+        if(!NetworkGate.vpnActive(this)){
+            new AlertDialog.Builder(this).setTitle("VPN لازم است")
+                .setMessage("ابتدا VPN داخل FHG باید متصل شود و آزمون اینترنت را بگذراند.")
+                .setPositiveButton("اتصال VPN",(d,w)->connectVpn())
+                .setNegativeButton("انصراف",null).show();
+            return;
         }
-    }
-
-    private void copyTotp() {
-        try {
-            AccountStore.Account current = store.selected();
-            if (current == null || current.totpSecret.isEmpty()) return;
-            String otp = Totp.now(current.totpSecret);
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("FHG 2FA", otp));
-            android.widget.Toast.makeText(this,"2FA copied",android.widget.Toast.LENGTH_SHORT).show();
-        } catch (Exception ignored) {
-            android.widget.Toast.makeText(this,"2FA unavailable",android.widget.Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void openBrowser() {
-        try {
-            AccountStore.Account current = store.selected();
-            if (current == null) {
-                pickConfig();
-                return;
-            }
-            if (!NetworkGate.vpnActive(this)) {
-                new AlertDialog.Builder(this).setTitle("VPN required")
-                    .setMessage("FHG blocks web browsing while no system VPN is detected. Connect the integrated FHG VPN and enable Always-on VPN with Block connections without VPN for FHG in Android settings.")
-                    .setPositiveButton("VPN settings", (d,w) -> openVpnSettings())
-                    .setNegativeButton("Cancel", null).show();
-                return;
-            }
-            Intent browser = new Intent(this, BrowserActivity.class);
-            browser.putExtra("account_id", current.id);
+        try{
+            AccountStore.Account account=vault.selected();
+            if(account==null){pickAccount();return;}
+            Intent browser=new Intent(this,BrowserActivity.class);
+            browser.putExtra("account_id",account.id);
             startActivity(browser);
-        } catch (Exception error) {
-            new AlertDialog.Builder(this).setMessage("Account vault unavailable; browser not opened.")
-                    .setPositiveButton("OK", null).show();
-        }
+        }catch(Exception e){error("ACCOUNT_VAULT_ERROR");}
+    }
+    private void copyOtp(){
+        try{
+            AccountStore.Account account=vault.selected();
+            if(account==null||account.totpSecret.isEmpty())return;
+            String code=Totp.now(account.totpSecret);
+            ClipboardManager clipboard=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("FHG TOTP",code));
+            Toast.makeText(this,"کد کپی شد",Toast.LENGTH_SHORT).show();
+        }catch(Exception ignored){}
+    }
+    @Override public void onResume(){super.onResume(); if(created)loadAccounts(); created=true;}
+    @Override protected void onDestroy(){
+        main.removeCallbacksAndMessages(null);
+        super.onDestroy();
     }
 }

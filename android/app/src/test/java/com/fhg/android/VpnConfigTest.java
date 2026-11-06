@@ -108,12 +108,40 @@ public class VpnConfigTest {
         if(destination==null||destination.isEmpty())return;
         java.nio.file.Path dir=java.nio.file.Paths.get(destination);
         java.nio.file.Files.createDirectories(dir);
-        String json=VpnConfig.parse(
+        java.util.LinkedHashMap<String,String> formats=new java.util.LinkedHashMap<>();
+        formats.put("trojan",
             "trojan://test-password@edge.example.org:443?security=tls&sni=edge.example.org");
-        java.nio.file.Files.writeString(dir.resolve("trojan-generated.json"),json);
-        String second=VpnConfig.parse(
+        formats.put("vless",
             "vless://123e4567-e89b-12d3-a456-426614174000@edge.example.org:443?security=tls&sni=edge.example.org&type=ws&path=%2Fws");
-        java.nio.file.Files.writeString(dir.resolve("vless-generated.json"),second);
+        formats.put("hysteria2",
+            "hysteria2://test-password@edge.example.org:443?sni=edge.example.org");
+        formats.put("tuic",
+            "tuic://123e4567-e89b-12d3-a456-426614174000:password@edge.example.org:443?sni=edge.example.org");
+        formats.put("shadowsocks",
+            "ss://YWVzLTEyOC1nY206dGVzdHBhc3N3b3Jk@edge.example.org:8388#test");
+        formats.put("vmess",
+            "vmess://"+java.util.Base64.getEncoder().encodeToString(
+                "{\\\"add\\\":\\\"edge.example.org\\\",\\\"port\\\":443,"+
+                "\\\"id\\\":\\\"123e4567-e89b-12d3-a456-426614174000\\\","+
+                "\\\"net\\\":\\\"ws\\\",\\\"path\\\":\\\"/v\\\","+
+                "\\\"host\\\":\\\"cdn.example.org\\\",\\\"tls\\\":\\\"tls\\\"}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        formats.put("clash-yaml",String.join("\\n",
+            "proxies:","  - name: Frankfurt","    type: vless",
+            "    server: edge.example.org","    port: 443",
+            "    uuid: 123e4567-e89b-12d3-a456-426614174000",
+            "    tls: true","    network: ws","    ws-opts:","      path: /chat"));
+        formats.put("singbox-json",
+            "{\\\"outbounds\\\":[{\\\"type\\\":\\\"direct\\\",\\\"tag\\\":\\\"direct\\\"},"+
+            "{\\\"type\\\":\\\"trojan\\\",\\\"tag\\\":\\\"proxy\\\","+
+            "\\\"server\\\":\\\"edge.example.org\\\",\\\"server_port\\\":443,"+
+            "\\\"password\\\":\\\"test-password\\\"}]," +
+            "\\\"route\\\":{\\\"final\\\":\\\"direct\\\"}}");
+        for (java.util.Map.Entry<String,String> entry:formats.entrySet()) {
+            String json=VpnConfig.parse(entry.getValue());
+            java.nio.file.Files.writeString(
+                dir.resolve(entry.getKey()+"-generated.json"),json);
+        }
     }
 
 }

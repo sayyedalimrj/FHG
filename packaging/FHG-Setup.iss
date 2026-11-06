@@ -1,7 +1,7 @@
 ; FHG Windows x64 installer — per-user installation, explicit directory picker.
 ; Build using ISCC.exe on a Windows GitHub Actions runner after stage is ready.
 ; Never copy sources, build scripts, .py or setup input/credentials into app dir.
-#define FhgVersion "0.6.3"
+#define FhgVersion "0.6.4"
 [Setup]
 AppId={{5BD4AA38-6319-4C59-B0D8-4706B994208F}
 AppName=FHG Browser

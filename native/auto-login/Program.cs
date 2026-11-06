@@ -14,6 +14,8 @@ internal static class Program
 
     public static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--self-test-driver")
+            return SelfTestDriver();
         if (args.Length != 2 || args[0] != "--account" ||
             !AccountVault.ValidId(args[1]))
             return 31;
@@ -46,6 +48,41 @@ internal static class Program
         catch (OperationCanceledException) { return 20; }
         catch (InvalidOperationException) { return 20; }
         catch (Exception) { return 30; }
+    }
+
+    private static int SelfTestDriver()
+    {
+        // CI only: synthetic local data URI, no user vault or network login.
+        string temporaryProfile = Path.Combine(Path.GetTempPath(),
+            "FHG-Test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryProfile);
+        try
+        {
+            using var driver = new FirefoxDriverBridge(
+                Path.Combine(Root, "WebDriver", "geckodriver.exe"),
+                Path.Combine(Root, "Firefox", "firefox.exe"),
+                temporaryProfile);
+            const string fixture = "<html><body><form onsubmit='event.preventDefault();document.body.setAttribute(\"data-test-success\",\"yes\")'>" +
+                "<input name='current-password' type='password' autocomplete='current-password'>" +
+                "<button type='submit'>Continue</button></form></body></html>";
+            driver.GoTo("data:text/html;charset=utf-8," + Uri.EscapeDataString(fixture));
+            string? field = driver.FindVisible("form input[name='current-password'][type='password']");
+            if (field == null) return 50;
+            driver.Fill(field, "SYNTHETIC-WINDOWS-CI-ONLY");
+            string? button = driver.FindVisible("form button[type='submit']");
+            if (button == null) return 51;
+            driver.Click(button);
+            Thread.Sleep(350);
+            if (!driver.IsPresent("body[data-test-success='yes']")) return 52;
+            Console.WriteLine("PASS: bundled Firefox + official geckodriver W3C protocol, synthetic form only");
+            return 0;
+        }
+        catch (Exception) { return 53; }
+        finally
+        {
+            try { Directory.Delete(temporaryProfile, recursive: true); }
+            catch { /* Temporary data contains only synthetic values. */ }
+        }
     }
 
     private static int Execute(FirefoxDriverBridge browser, FhgAccount account)

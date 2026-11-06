@@ -6,21 +6,39 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 
 /**
- * Browser-level fail-closed gate bound to FHG's OWN integrated VPN.\n * This is NOT a replacement for Android's
- * system VPN Lockdown. The user must enable Always-on VPN and
- * Block connections without VPN for Hiddify in Android system settings.
- * Every web session is closed when the active VPN is lost.
+ * Enforces the *app's* own verified tunnel plus Android's VPN transport.
+ * A VPN app may see the underlying network as its process default, so testing
+ * only getActiveNetwork() would incorrectly report failure on some devices.
+ * This check does not replace Always-on VPN + OS Lockdown for other apps.
  */
 final class NetworkGate {
     private NetworkGate() {}
+
+    static Network activeFhgVpnNetwork(Context context) {
+        if (!EmbeddedVpnService.isEstablished()) return null;
+        ConnectivityManager cm = (ConnectivityManager)
+                context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return null;
+        try {
+            for (Network n : cm.getAllNetworks()) {
+                NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+                if (caps == null ||
+                    !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
+                    continue;
+                // Only one Android VPN is permitted for a user profile and
+                // our own libbox verifies the TUN. Owner UID can further
+                // discriminate another VPN on Android 10+.
+                if (android.os.Build.VERSION.SDK_INT >= 29 &&
+                    caps.getOwnerUid() != android.os.Process.myUid())
+                    continue;
+                return n;
+            }
+        } catch (RuntimeException ignored) {}
+        return null;
+    }
+
     static boolean vpnActive(Context context) {
-        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(
-                Context.CONNECTIVITY_SERVICE);
-        if (cm == null) return false;
-        Network network = cm.getActiveNetwork();
-        if (network == null) return false;
-        NetworkCapabilities caps = cm.getNetworkCapabilities(network);
-        return EmbeddedVpnService.isEstablished() && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-                && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        return activeFhgVpnNetwork(context) != null;
     }
 }

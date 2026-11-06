@@ -88,6 +88,11 @@ jobs:
           $policy.policies.ExtensionSettings.'authenticator@mymindstorm'.install_url=([uri]$auth).AbsoluteUri
           $policy | ConvertTo-Json -Depth 25 | Set-Content $policyPath -Encoding utf8
           Write-Host 'PASS: original Authenticator retained, signed timezone addon added to temporary test only'
+      - name: Diagnose installed signed extensions in fresh Firefox
+        shell: pwsh
+        run: |
+          python native/auto-login-tests/probe_firefox_extension.py (Resolve-Path stage).Path
+          if ($LASTEXITCODE -ne 0) {throw 'Firefox extension diagnostic failed'}
       - name: Run real Firefox offline signup-input and signed timezone regression
         shell: pwsh
         run: |

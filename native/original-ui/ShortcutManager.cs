@@ -25,11 +25,26 @@ internal static class ShortcutManager
         {
             string full = Path.GetFullPath(target);
             string file = Path.GetFileName(full);
-            return Inside(full, appRoot) &&
-                (file.Equals("FHG.exe", StringComparison.OrdinalIgnoreCase) ||
-                 file.Equals("firefox.exe", StringComparison.OrdinalIgnoreCase) ||
-                 file.Equals("FHGAccountManager.exe", StringComparison.OrdinalIgnoreCase) ||
-                 file.Equals("FHGProxy.exe", StringComparison.OrdinalIgnoreCase));
+            bool supported = file.Equals("FHG.exe", StringComparison.OrdinalIgnoreCase) ||
+                file.Equals("firefox.exe", StringComparison.OrdinalIgnoreCase) ||
+                file.Equals("FHGAccountManager.exe", StringComparison.OrdinalIgnoreCase) ||
+                file.Equals("FHGProxy.exe", StringComparison.OrdinalIgnoreCase);
+            if (!supported) return false;
+            if (Inside(full, appRoot)) return true;
+
+            // Inno Setup may have placed the previous-release shortcuts in
+            // a DIFFERENT installation directory. Repair only a recognizable
+            // old bundled FHG installation, never an unrelated custom link.
+            string? folder = Path.GetDirectoryName(full);
+            if (folder == null) return false;
+            string? formerRoot = (file.Equals("firefox.exe", StringComparison.OrdinalIgnoreCase) ||
+                                  file.Equals("FHGProxy.exe", StringComparison.OrdinalIgnoreCase))
+                ? Directory.GetParent(folder)?.FullName : folder;
+            return formerRoot != null &&
+                File.Exists(Path.Combine(formerRoot, "FHG.exe")) &&
+                File.Exists(Path.Combine(formerRoot, "FHGAccountManager.exe")) &&
+                File.Exists(Path.Combine(formerRoot, "Firefox", "firefox.exe")) &&
+                File.Exists(Path.Combine(formerRoot, "Hiddify", "FHGProxy.exe"));
         }
         catch { return false; }
     }

@@ -93,6 +93,11 @@ internal sealed class FirefoxDriverBridge : IDisposable
             string.IsNullOrEmpty(field.GetString()))
             throw new InvalidOperationException("WEBDRIVER_SESSION_INVALID");
         sessionId = field.GetString()!;
+        // Configure the separate FHG browser's signed timezone add-on before
+        // any website is visited. The operating-system clock is untouched.
+        string timezoneResult = OriginalTimezoneSync.Apply(this);
+        if (timezoneResult != "OK")
+            throw new InvalidOperationException("BERLIN_TIMEZONE_NOT_READY_" + timezoneResult);
     }
 
     private JsonElement Request(HttpMethod method, string relative, object? payload = null)

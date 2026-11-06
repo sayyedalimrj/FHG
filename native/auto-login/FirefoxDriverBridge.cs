@@ -189,7 +189,8 @@ internal sealed class FirefoxDriverBridge : IDisposable
                 Request(HttpMethod.Post, PathFor("window"), new { handle });
                 Uri? trial = Decode(Request(HttpMethod.Get, PathFor("url")));
                 if (trial?.Scheme == "moz-extension" &&
-                    trial.AbsolutePath == "/view/import.html")
+                    (trial.AbsolutePath == "/view/import.html" ||
+                     trial.AbsolutePath == "/data/options/index.html"))
                     return trial;
             }
             catch (InvalidOperationException) { }

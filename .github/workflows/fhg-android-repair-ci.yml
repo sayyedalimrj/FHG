@@ -48,6 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           grep -q "applicationId 'com.fhg.android.repair'" android/app/build.gradle
+          grep -q 'native-validated profile' android/README.md || true
           grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
           grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
@@ -83,10 +84,29 @@ jobs:
           unzip -t android/app/libs/libbox.aar | tail -2
           unzip -l android/app/libs/libbox.aar | grep -E 'classes.jar|libgo.so' | head
           echo 'PASS: pinned sing-box native VPN engine verified, no binary committed'
-      - name: Compile and test real integrated VPN + GeckoView APK
+      - name: Compile and test integrated VPN, format parsers and GeckoView
         working-directory: android
+        env:
+          FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
         run: |
           gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Validate real generated proxy config with pinned sing-box CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --max-time 120 \
+            'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-linux-amd64.tar.gz' -o /tmp/sing-box.tar.gz
+          echo '699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968  /tmp/sing-box.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/fhg-singbox
+          tar -xzf /tmp/sing-box.tar.gz -C /tmp/fhg-singbox
+          SING_BOX="$(find /tmp/fhg-singbox -type f -name sing-box -print -quit)"
+          test -n "$SING_BOX"
+          chmod +x "$SING_BOX"
+          for config in android/app/build/fhg-native-fixtures/*.json; do
+            test -s "$config"
+            "$SING_BOX" check -c "$config"
+            echo "PASS: native sing-box 1.14.4 accepted $(basename "$config")"
+          done
       - name: Verify Android APK content and integrity
         shell: bash
         run: |

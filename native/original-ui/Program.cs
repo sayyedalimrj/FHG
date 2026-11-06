@@ -582,16 +582,16 @@ internal static class Program
                     passwordStored ? "PASSWORD_SAVED" : "PASSWORD_IMPORT_FAILED"); } catch { }
                 return 0;
             }
-            var info = new ProcessStartInfo(FirefoxExe)
+            var browser = new ProcessStartInfo(FirefoxExe)
             {
                 WorkingDirectory = FirefoxDir,
                 UseShellExecute = false
             };
-            info.ArgumentList.Add("-no-remote");
-            info.ArgumentList.Add("-profile");
-            info.ArgumentList.Add(ProfileDir);
-            info.ArgumentList.Add("https://chatgpt.com/login");
-            using var firefox = Process.Start(info);
+            browser.ArgumentList.Add("-no-remote");
+            browser.ArgumentList.Add("-profile");
+            browser.ArgumentList.Add(ProfileDir);
+            browser.ArgumentList.Add("https://chatgpt.com/login");
+            using var firefox = Process.Start(browser);
             if (firefox == null)
             {
                 Log("Native Firefox launch failed.");

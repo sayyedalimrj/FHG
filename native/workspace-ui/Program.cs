@@ -40,6 +40,7 @@ internal sealed class WorkspaceWindow : Form
     private readonly Label info = new() {ForeColor=Muted,Font=new Font("Segoe UI",9.4f)};
     private readonly Label hint = new() {ForeColor=Muted,Font=new Font("Segoe UI",9.5f)};
     private readonly Dictionary<string,(Label code,Label seconds)> clocks = new();
+    private readonly Dictionary<string,Label> loginViews = new();
     private readonly System.Windows.Forms.Timer refreshTimer = new() { Interval = 1000 };
     private string? selectedId;
     private string? clipboardOwner;
@@ -175,6 +176,7 @@ internal sealed class WorkspaceWindow : Form
         cards.SuspendLayout();
         cards.Controls.Clear();
         clocks.Clear();
+        loginViews.Clear();
         foreach(var account in accounts) {
             var c=BuildCard(account);
             cards.Controls.Add(c);
@@ -199,13 +201,13 @@ internal sealed class WorkspaceWindow : Form
     {
         bool chosen=account.Id==selectedId, active=account.Id==AccountVault.ActiveId();
         var c=new Panel {
-            Height=201,Width=Math.Max(710,cards.ClientSize.Width-49),
+            Height=233,Width=Math.Max(710,cards.ClientSize.Width-49),
             BackColor=chosen?Color.FromArgb(235,247,255):Color.White,
             Margin=new Padding(2,0,2,13),Tag=account.Id,
             BorderStyle=BorderStyle.FixedSingle
         };
         c.Controls.Add(new Panel {
-            BackColor=active?Mint:Blue,Width=5,Height=199,Left=0,Top=0
+            BackColor=active?Mint:Blue,Width=5,Height=231,Left=0,Top=0
         });
         var label=new Label {
             Text=account.Label,Left=22,Top=20,Width=550,Height=31,
@@ -225,6 +227,19 @@ internal sealed class WorkspaceWindow : Form
             Left=23,Top=87,Width=630,Height=25,ForeColor=Muted,
             Font=new Font("Segoe UI",8.9f)
         });
+        // This state comes from the CURRENT per-account login helper.
+        // It is not guessed from the selected/active account or the 2FA code.
+        string loginCode=LoginProgress.Read(account.Id);
+        var login=new Label {
+            Text="CHATGPT  •  "+LoginProgress.Display(loginCode),
+            Left=23,Top=117,Width=850,Height=27,
+            Anchor=AnchorStyles.Left|AnchorStyles.Right|AnchorStyles.Top,
+            Font=new Font("Segoe UI",9.3f,FontStyle.Bold),
+            ForeColor=loginCode=="SUCCESS"?Mint:
+                loginCode=="ERROR"?Color.FromArgb(187,51,58):Blue
+        };
+        c.Controls.Add(login);
+        loginViews[account.Id]=login;
         var code=new Label {
             Text="------",Left=c.Width-290,Top=20,Width=180,Height=43,
             Font=CodeFont,TextAlign=ContentAlignment.MiddleCenter,ForeColor=Ink,
@@ -239,13 +254,13 @@ internal sealed class WorkspaceWindow : Form
         clocks[account.Id]=(code,seconds);
 
         var use=MakeButton(active?"Start ChatGPT":"Use & start",155,true);
-        use.SetBounds(22,133,155,43);c.Controls.Add(use);
+        use.SetBounds(22,160,155,43);c.Controls.Add(use);
         var proxy=MakeButton("Proxy settings",145,false);
-        proxy.SetBounds(190,133,145,43);c.Controls.Add(proxy);
-        var edit=MakeButton("Edit",92,false);edit.SetBounds(348,133,92,43);c.Controls.Add(edit);
-        var del=MakeButton("Delete",92,false);del.SetBounds(453,133,92,43);
+        proxy.SetBounds(190,160,145,43);c.Controls.Add(proxy);
+        var edit=MakeButton("Edit",92,false);edit.SetBounds(348,160,92,43);c.Controls.Add(edit);
+        var del=MakeButton("Delete",92,false);del.SetBounds(453,160,92,43);
         del.ForeColor=Color.FromArgb(190,53,58);c.Controls.Add(del);
-        var otp=MakeButton("Copy 2FA",135,false);otp.SetBounds(558,133,135,43);c.Controls.Add(otp);
+        var otp=MakeButton("Copy 2FA",135,false);otp.SetBounds(558,160,135,43);c.Controls.Add(otp);
 
         use.Click+=(_,_)=>Safely(()=>Start(account,false));
         proxy.Click+=(_,_)=>Safely(()=>Start(account,true));
@@ -278,6 +293,14 @@ internal sealed class WorkspaceWindow : Form
             try { view.code.Text=AccountVault.GenerateTotp(a.TotpSeed,DateTimeOffset.UtcNow); }
             catch {view.code.Text="Invalid key";}
             view.seconds.Text=remaining+"s remaining";
+            if (loginViews.TryGetValue(a.Id,out var loginView))
+            {
+                string state=LoginProgress.Read(a.Id);
+                string content="CHATGPT  •  "+LoginProgress.Display(state);
+                if (loginView.Text != content) loginView.Text=content;
+                loginView.ForeColor=state=="SUCCESS"?Mint:
+                    state=="ERROR"?Color.FromArgb(187,51,58):Blue;
+            }
         }
     }
 

@@ -36,7 +36,7 @@ final class DiagnosticReport {
         if (osVersion == null || !osVersion.matches("[0-9.]{1,20}"))
             osVersion="unknown";
         return "FHG Secure / VPN diagnostics\n"
-            + "Release: 1.0.0-rc.3\n"
+            + "Release: 1.0.0-rc.4\n"
             + "Android API: " + sdk + "\n"
             + "Android version: " + osVersion + "\n"
             + "ABI: arm64-v8a\n"

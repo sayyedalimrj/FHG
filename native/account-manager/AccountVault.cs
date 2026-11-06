@@ -136,6 +136,17 @@ public sealed class AccountVault
         if (all.Any(a => a.Id != id && a.Label.Equals(label, StringComparison.OrdinalIgnoreCase)))
             throw new FormatException("Another account already uses this name. Choose a distinct account name.");
         // Stable ID keeps isolated Firefox profile and current selected account intact.
+        // If the credentials changed, force a new Firefox encrypted-password
+        // import on the next launch. Neither the password nor its hash appears
+        // in the marker; the existing Firefox profile is never deleted.
+        bool credentialsChanged = !string.Equals(all[index].Label, label,
+                StringComparison.Ordinal) ||
+            !string.Equals(all[index].Password, password, StringComparison.Ordinal);
+        if (credentialsChanged)
+        {
+            string marker = Path.Combine(Root, id, "firefox-password-imported.v1");
+            if (File.Exists(marker)) File.Delete(marker);
+        }
         all[index] = all[index] with {
             Label = label, Password = password, TotpSeed = totpSeed, SubscriptionUrl = subscriptionUrl
         };

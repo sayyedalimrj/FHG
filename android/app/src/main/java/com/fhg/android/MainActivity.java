@@ -61,7 +61,7 @@ public final class MainActivity extends Activity {
     private Spinner spinner;
     private TextView status, caption, accountLabel, profileLabel, otp, inlineError;
     private ProgressBar pending;
-    private Button power, browser, advanced;
+    private Button power, browser, advanced, recovery;
     private List<AccountStore.Account> accounts=new ArrayList<>();
     private boolean importing;
     private boolean connectAfterImport;
@@ -107,6 +107,7 @@ public final class MainActivity extends Activity {
         GradientDrawable d=new GradientDrawable();
         d.setColor(color);
         d.setCornerRadius(dp(radius));
+        if(color==SURFACE)d.setStroke(dp(1),0xff293e56);
         return d;
     }
     private TextView label(String value,int size,int color,boolean bold){
@@ -138,7 +139,11 @@ public final class MainActivity extends Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(15);
         b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
-        b.setBackground(shape(color,13));
+        b.setMinHeight(dp(48));
+        b.setContentDescription(value);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(
+            android.content.res.ColorStateList.valueOf(0x44ffffff),
+            shape(color,13),null));
         b.setOnClickListener(v->callback.run());
         return b;
     }
@@ -150,14 +155,32 @@ public final class MainActivity extends Activity {
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(18),dp(22),dp(18),dp(30));
+        // Target API 35 draws edge-to-edge. Keep all controls above the
+        // gesture/navigation area and away from notches.
+        root.setOnApplyWindowInsetsListener((view,insets)->{
+            int top,bottom;
+            if(android.os.Build.VERSION.SDK_INT>=30) {
+                android.graphics.Insets bars=insets.getInsets(
+                    android.view.WindowInsets.Type.systemBars());
+                top=bars.top; bottom=bars.bottom;
+            } else {
+                top=insets.getSystemWindowInsetTop();
+                bottom=insets.getSystemWindowInsetBottom();
+            }
+            view.setPadding(dp(18),dp(22)+top,dp(18),dp(30)+bottom);
+            return insets;
+        });
         scroll.addView(root);
         setContentView(scroll);
 
-        add(root,label("FHG  /  ANDROID",27,INK,true),39,0);
-        add(root,label("مرورگر خصوصی و VPN یکپارچه",14,MUTED,false),30,0);
+        TextView brand=label("FHG  •  SECURE",26,INK,true);
+        brand.setTextDirection(View.TEXT_DIRECTION_LTR);
+        add(root,brand,40,0);
+        add(root,label("اینترنت مطمئن، مرورگر اختصاصی، بدون پنجره‌های اضافی",14,MUTED,false),-2,4);
+        add(root,label("① حساب   •   ② پروفایل   •   ③ اتصال   •   ④ مرورگر",12,ACCENT,false),-2,15);
 
         LinearLayout connection=card();
-        add(connection,label("اتصال امن",21,INK,true),36,0);
+        add(connection,label("🛡  وضعیت VPN",21,INK,true),36,0);
         status=label("در حال بررسی وضعیت…",16,ACCENT,true);
         add(connection,status,43,7);
         caption=label("ابتدا یک حساب وارد کن. پروفایل VPN خودکار نصب می‌شود.",13,MUTED,false);
@@ -175,13 +198,23 @@ public final class MainActivity extends Activity {
         inlineError.setMaxLines(4);
         inlineError.setVisibility(View.GONE);
         add(connection,inlineError,-2,6);
+        recovery=action("↻  رفع مشکل و به‌روزرسانی اشتراک",0xff33516a,()->{
+            try{
+                AccountStore.Account a=vault.selected();
+                if(a==null)pickAccount(); else importSubscription(a,true);
+            }catch(Exception ignored){error("ACCOUNT_VAULT_ERROR");}
+        });
+        recovery.setVisibility(View.GONE);
+        add(connection,recovery,50,10);
         add(root,connection,-2,22);
 
         LinearLayout profile=card();
-        add(profile,label("حساب کاربری",19,INK,true),35,0);
+        add(profile,label("👤  حساب و ورود",19,INK,true),35,0);
         spinner=new Spinner(this);
         spinner.setBackground(shape(0xff223652,10));
-        add(profile,spinner,50,4);
+        spinner.setMinimumHeight(dp(52));
+        spinner.setContentDescription("انتخاب حساب فعال FHG");
+        add(profile,spinner,52,6);
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
             @Override public void onNothingSelected(AdapterView<?> parent){}
             @Override public void onItemSelected(AdapterView<?> p,View v,int pos,long id){
@@ -210,16 +243,16 @@ public final class MainActivity extends Activity {
         add(root,profile,-2,14);
 
         LinearLayout browsing=card();
-        add(browsing,label("مرورگر اختصاصی",19,INK,true),36,0);
+        add(browsing,label("🌐  مرورگر ChatGPT",19,INK,true),36,0);
         add(browsing,label("ورود به ChatGPT دستی است؛ اطلاعات حساب فقط برای دامنه‌های رسمی تکمیل می‌شود.",13,MUTED,false),-2,2);
         browser=action("ورود به ChatGPT",0xff1773aa,this::openBrowser);
         add(browsing,browser,55,17);
         add(root,browsing,-2,14);
 
-        advanced=action("تنظیمات پیشرفته  ▾",0xff27364e,()->{
+        advanced=action("⚙  تنظیمات و ابزارها  ▾",0xff27364e,()->{
             expanded=!expanded;
             advancedPanel.setVisibility(expanded?View.VISIBLE:View.GONE);
-            advanced.setText(expanded?"بستن تنظیمات  ▴":"تنظیمات پیشرفته  ▾");
+            advanced.setText(expanded?"⚙  بستن تنظیمات  ▴":"⚙  تنظیمات و ابزارها  ▾");
         });
         add(root,advanced,49,14);
         advancedPanel=card();
@@ -237,7 +270,7 @@ public final class MainActivity extends Activity {
         add(advancedPanel,action("قطع اتصال VPN",0xff734760,this::disconnect),48,8);
         add(advancedPanel,label("نکته: دانلود اولیه اشتراک HTTPS ممکن است قبل از اتصال VPN انجام شود. برای محافظت کل گوشی، گزینه Block connections without VPN را در تنظیمات اندروید فعال کن.",12,MUTED,false),-2,16);
         add(root,advancedPanel,-2,7);
-        add(root,label("FHG Android 0.2.3  •  GeckoView  +  sing-box",11,MUTED,false),35,18);
+        add(root,label("FHG Secure 1.0 RC  •  GeckoView + sing-box  •  ARM64",11,MUTED,false),35,18);
     }
 
     private void loadAccounts(){
@@ -247,8 +280,27 @@ public final class MainActivity extends Activity {
             for(int i=0;i<names.length;i++)names[i]=accounts.get(i).email;
             if(names.length==0)names=new String[]{"حسابی وارد نشده"};
             syncingSpinner=true;
-            ArrayAdapter<String> adapter=new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item,names);
+            ArrayAdapter<String> adapter=new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_dropdown_item,names){
+                private TextView row(String value,boolean dropDown){
+                    TextView t=label(value,14,INK,false);
+                    t.setBackground(shape(dropDown?0xff233b57:0xff223652,dp(10)));
+                    t.setPadding(dp(14),dp(12),dp(14),dp(12));
+                    t.setMinHeight(dp(52));
+                    t.setSingleLine(true);
+                    t.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+                    t.setTextDirection(View.TEXT_DIRECTION_LTR);
+                    return t;
+                }
+                @Override public View getView(int position,View convertView,
+                    android.view.ViewGroup parent) {
+                    return row(getItem(position),false);
+                }
+                @Override public View getDropDownView(int position,View convertView,
+                    android.view.ViewGroup parent) {
+                    return row(getItem(position),true);
+                }
+            };
             spinner.setAdapter(adapter);
             AccountStore.Account chosen=vault.selected();
             if(chosen!=null)for(int i=0;i<accounts.size();i++)
@@ -263,20 +315,25 @@ public final class MainActivity extends Activity {
     private void update(){
         boolean connected=NetworkGate.vpnActive(this);
         String state=EmbeddedVpnService.getState();
+        boolean reconnecting=state.equals("RECONNECTING");
+        boolean tunnelOpen=EmbeddedVpnService.isTunnelUp();
         boolean working=importing||EmbeddedVpnService.isStarting()||state.equals("CHECKING");
         pending.setVisibility(working?View.VISIBLE:View.GONE);
         status.setText(connected?"متصل • ترافیک VPN بررسی شد":
             importing?"در حال دریافت و نصب خودکار پروفایل…":
             state.equals("CHECKING")?"تونل ساخته شد؛ در حال آزمون اینترنت…":
             state.equals("STARTING")?"در حال راه‌اندازی موتور VPN…":
-            state.equals("FAILED")?"VPN متصل نیست":"آماده اتصال");
-        status.setTextColor(connected?ACCENT:working?0xffffd180:INK);
+            reconnecting?"اتصال موقتاً قطع شده؛ بازیابی امن…":
+            state.equals("FAILED")?"اتصال برقرار نشد":"آماده اتصال");
+        status.setTextColor(connected?ACCENT:working||reconnecting?0xffffd180:INK);
+        status.setContentDescription("وضعیت VPN: "+status.getText());
         caption.setText(connected?"VPN و مسیر HTTPS آزمون شده‌اند؛ مرورگر آماده است.":
             importing?"اشتراک با HTTPS در حال نصب خودکار است؛ دانلود اولیه ممکن است قبل از VPN انجام شود.":
             "تا هنگام تأیید اتصال، دسترسی مرورگر مسدود می‌ماند.");
-        power.setText(connected?"قطع اتصال":"اتصال VPN");
+        power.setText(tunnelOpen?"■  قطع VPN":"●  اتصال VPN");
         power.setEnabled(!working);
         power.setAlpha(working?.55f:1f);
+        power.setContentDescription(tunnelOpen?"قطع تونل VPN FHG":"اتصال تونل VPN FHG");
         browser.setEnabled(connected);
         browser.setAlpha(connected?1f:.48f);
         String failure=lastImportError;
@@ -285,6 +342,7 @@ public final class MainActivity extends Activity {
             inlineError.setText("نیاز به بررسی: "+humanError(failure));
             inlineError.setVisibility(View.VISIBLE);
         } else inlineError.setVisibility(View.GONE);
+        recovery.setVisibility(!failure.isEmpty()&&!working?View.VISIBLE:View.GONE);
         try{
             AccountStore.Account account=vault.selected();
             if(account==null){
@@ -323,7 +381,7 @@ public final class MainActivity extends Activity {
             case "NO_SUPPORTED_PROXY_NODES":return "اشتراک سرور سازگار پیدا نکرد.";
             case "JSON_HAS_NO_SUPPORTED_PROXY":return "فایل JSON سرور قابل‌پشتیبانی ندارد.";
             case "YAML_REMOTE_PROVIDER_UNSUPPORTED":return "این Clash YAML فقط به proxy-provider دیگری اشاره می‌کند.";
-            case "PROXY_NOT_REACHABLE":return "اینترفیس VPN برقرار شد ولی خروجی HTTPS از تونل پاسخ نداد.";
+            case "PROXY_NOT_REACHABLE":return "اینترفیس VPN برقرار شد ولی آزمون HTTPS اختصاصیِ شبکه VPN موفق نبود.";
             case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
             case "VPN_CONFIG_REJECTED":return "این پروفایل با موتور sing-box نصب‌شده سازگار نیست؛ فایل یا نوع اشتراک را بررسی کن.";
             case "LIBBOX_START_ERROR":return "موتور sing-box پیکربندی را اجرا نکرد؛ پروفایل یا شبکه نیاز به بررسی دارد.";
@@ -451,7 +509,9 @@ public final class MainActivity extends Activity {
     }
 
     private void onPower(){
-        if(NetworkGate.vpnActive(this))disconnect(); else connectVpn();
+        if(EmbeddedVpnService.isTunnelUp()||NetworkGate.vpnActive(this))
+            disconnect();
+        else connectVpn();
     }
     private void connectVpn(){
         try{

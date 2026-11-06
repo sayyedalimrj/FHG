@@ -1,0 +1,51 @@
+name: Verify original signed Authenticator browser-storage API
+on:
+  push:
+    branches: [fix-original-auth-storage-api-20261106]
+    paths:
+      - native/auto-login/**
+      - .github/workflows/verify-original-auth-browser-api.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  firefox:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build changed FHG login
+        shell: pwsh
+        run: |
+          dotnet publish native/auto-login/FHGLogin.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o updated
+          if ($LASTEXITCODE -ne 0) { throw 'Compilation failed' }
+      - name: Download pinned previous release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v0.6.0-test.6 --repo $env:GITHUB_REPOSITORY --pattern FHG-Setup-Windows-x64-0.6.0-preview.exe --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Previous package missing' }
+          $base=Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          if ((Get-FileHash $base -Algorithm SHA256).Hash.ToLowerInvariant() -ne '7d7a0c030ece1549d5d3b503850944b0bd76e83e72179d0820574dc9a3cffbf4') {
+            throw 'Baseline mismatch'
+          }
+          $dest=Join-Path $env:RUNNER_TEMP 'FHGAddonApiTest'
+          $job=Start-Process -FilePath $base -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$dest))
+          if ($job.ExitCode -ne 0) { throw 'Extraction failed' }
+          Copy-Item updated/FHGLogin.exe (Join-Path $dest 'FHGLogin.exe') -Force
+          Set-Content -Path fhg-stage-path.txt -Value $dest -NoNewline
+      - name: Test official Firefox extension storage API with fake TOTP
+        shell: pwsh
+        run: |
+          $dest=Get-Content fhg-stage-path.txt -Raw
+          Push-Location $dest
+          try {
+            & ./FHGLogin.exe --self-test-driver
+            if ($LASTEXITCODE -ne 0) { throw "Original Authenticator API integration failed; exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }

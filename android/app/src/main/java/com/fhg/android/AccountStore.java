@@ -212,6 +212,13 @@ final class AccountStore {
         }
     }
 
+    synchronized boolean hasVpnConfig(String accountId) {
+        return accountId != null &&
+            accountId.matches("[0-9a-fA-F\\-]{36}") &&
+            new File(context.getNoBackupFilesDir(),
+                "vpn-" + accountId + ".aesgcm").exists();
+    }
+
     synchronized String loadVpnConfig(String accountId) throws Exception {
         if (accountId == null || !accountId.matches("[0-9a-fA-F\\-]{36}"))
             throw new IllegalArgumentException("Invalid account ID");

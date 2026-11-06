@@ -36,9 +36,13 @@ final class Totp {
     }
 
     static String now(String seed) throws Exception {
+        return codeAt(seed, System.currentTimeMillis());
+    }
+
+    static String codeAt(String seed, long unixMillis) throws Exception {
         byte[] key = decode(seed);
         try {
-            long counter = (System.currentTimeMillis() / 1000L) / 30L;
+            long counter = (unixMillis / 1000L) / 30L;
             byte[] time = new byte[8];
             for (int i = 7; i >= 0; i--) {
                 time[i] = (byte)(counter & 255);

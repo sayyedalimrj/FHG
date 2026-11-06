@@ -1,0 +1,80 @@
+name: FHG Android beta GeckoView browser + Hiddify VPN companion APK
+
+on:
+  push:
+    branches:
+      - android-fhg-v0-1-20261106
+    paths:
+      - 'android/**'
+      - '.github/workflows/fhg-android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android API 36
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Verify hard VPN gate, Keystore, official login domain, no fake VPN
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'AES/GCM/NoPadding' android/app/src/main/java/com/fhg/android/AccountStore.java
+          grep -q 'TRANSPORT_VPN' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'session.close()' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'contextId(account.id)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'setAutocompleteStorageDelegate' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'request.confirm' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'setPackage("app.hiddify.com")' android/app/src/main/java/com/fhg/android/MainActivity.java
+          grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          test ! -e android/app/src/main/java/com/fhg/android/VpnService.java
+          echo 'PASS: Android Keystore, official GeckoView origin, VPN-requirement and companion safety contracts'
+      - name: Compile and test real GeckoView Android APK
+        working-directory: android
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify Android APK content and integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-Android-0.1.0-beta.apk
+          cd dist
+          sha256sum FHG-Android-0.1.0-beta.apk > FHG-Android-0.1.0-beta.apk.sha256
+          unzip -t FHG-Android-0.1.0-beta.apk | tail -2
+          SIZE=$(stat -c%s FHG-Android-0.1.0-beta.apk)
+          if [ "$SIZE" -lt 1000000 ]; then echo 'APK suspiciously small' >&2; exit 1; fi
+          echo "PASS: Android GeckoView debug APK built, validated, SHA-256 written; bytes=$SIZE"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-Android-0.1.0-beta-APK
+          path: dist/FHG-Android-0.1.0-beta.apk*
+          if-no-files-found: error
+      - name: Publish testable Android beta APK only after all gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="android-v0.1.0-beta.1"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Existing Android beta release tag is immutable; refusing overwrite" >&2
+            exit 1
+          fi
+          gh release create "$TAG"             dist/FHG-Android-0.1.0-beta.apk             dist/FHG-Android-0.1.0-beta.apk.sha256             --target "$GITHUB_SHA"             --title 'FHG Android 0.1.0 Beta — GeckoView + Hiddify VPN companion'             --notes-file android/README.md             --prerelease --latest=false

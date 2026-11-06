@@ -1,0 +1,58 @@
+name: FHG proxy auto-provisioning and clean workspace UI
+on:
+  push:
+    branches: [fix-original-auth-storage-api-20261106]
+    paths:
+      - 'native/original-ui/**'
+      - 'native/workspace-ui/**'
+      - 'native/proxy-workspace-tests/**'
+      - '.github/workflows/verify-workspace-proxy-ui.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    if: github.repository == 'sayyedalimrj/FHG'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test DPAPI account subscription and automatic proxy ticket lifecycle
+        shell: pwsh
+        run: |
+          dotnet run --project native/proxy-workspace-tests/FHG.ProxyWorkspace.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) {throw 'Proxy provisioning test failed'}
+      - name: Compile simplified FHG Manager and guarded FHG launcher
+        shell: pwsh
+        run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+          if ($LASTEXITCODE -ne 0) {throw 'Icon generation failed'}
+          dotnet publish native/original-ui/FHG.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-launcher
+          if ($LASTEXITCODE -ne 0) {throw 'Guarded FHG Launcher compile failed'}
+          dotnet publish native/workspace-ui/FHGWorkspace.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-accounts
+          if ($LASTEXITCODE -ne 0) {throw 'Simplified FHG Account Manager compile failed'}
+          foreach($file in @('publish-launcher/FHG.exe','publish-accounts/FHGAccountManager.exe')) {
+            if(!(Test-Path $file)) {throw "Missing Windows executable $file"}
+          }
+          $a=Get-Content native/workspace-ui/Program.cs -Raw
+          $b=Get-Content native/original-ui/Program.cs -Raw
+          if (!$a.Contains('Start workspace') -or !$a.Contains('Open FHG Proxy') -or
+              !$a.Contains('Add account') -or !$a.Contains('EditAccount') -or !$a.Contains('DeleteAccount')) {
+            throw 'Workspace UI lacks required actions'
+          }
+          if (!$b.Contains('ProxyAutomation.Prepare(null)') -or
+              !$b.Contains('ProxyAutomation.StopForNewSubscription(HiddifyExe)')) {
+            throw 'Account proxy auto-provisioning missing'
+          }
+          Write-Host 'PASS: cleaner GUI and auto-proxy launcher compiled'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-proxy-manager-windows-components
+          path: |
+            publish-launcher/FHG.exe
+            publish-accounts/FHGAccountManager.exe
+          if-no-files-found: error
+          retention-days: 7

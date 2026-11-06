@@ -156,7 +156,7 @@ internal sealed class WorkspaceWindow : Form
 
     private void LoadAccounts(string? focus=null)
     {
-        accounts=AccountVault.Load();
+        accounts=AccountVault.Load().ToArray();
         selectedId=focus??selectedId??AccountVault.ActiveId();
         if(!accounts.Any(a=>a.Id==selectedId)) selectedId=
             accounts.FirstOrDefault(a=>a.Id==AccountVault.ActiveId())?.Id??accounts.FirstOrDefault()?.Id;

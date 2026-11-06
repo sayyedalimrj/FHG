@@ -194,13 +194,13 @@ public final class BrowserActivity extends Activity {
         installSecureAutofill();
         session = makeSession();
         view.setSession(session);
-        session.loadUri("https://chatgpt.com/login");
+        session.loadUri("https://chatgpt.com/auth/login");
     }
 
     private GeckoSession makeSession() {
         GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
             .contextId(account.id).usePrivateMode(false)
-            .useTrackingProtection(true).build();
+            .useTrackingProtection(false).build(); // Cloudflare/MFA requires normal provider cookies; this is a ChatGPT-dedicated isolated context.
         GeckoSession child = new GeckoSession(settings);
         child.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public GeckoResult<GeckoSession> onNewSession(
@@ -263,6 +263,8 @@ public final class BrowserActivity extends Activity {
             if (hostname == null) return null;
             String host = hostname.toLowerCase(Locale.ROOT);
             if ("auth.openai.com".equals(host) ||
+                "auth0.openai.com".equals(host) ||
+                "setup.auth.openai.com".equals(host) ||
                 "chatgpt.com".equals(host))
                 return "https://" + host;
         } catch (Exception ignored) {}
@@ -287,7 +289,8 @@ public final class BrowserActivity extends Activity {
                 if (account == null)
                     return GeckoResult.fromValue(new Autocomplete.LoginEntry[0]);
                 return GeckoResult.fromValue(new Autocomplete.LoginEntry[]{
-                    login("https://chatgpt.com"), login("https://auth.openai.com")});
+                    login("https://chatgpt.com"), login("https://auth.openai.com"),
+                    login("https://auth0.openai.com"), login("https://setup.auth.openai.com")});
             }
             @Override public void onLoginSave(Autocomplete.LoginEntry entry) {
                 if (account == null || entry == null ||

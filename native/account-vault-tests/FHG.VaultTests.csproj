@@ -8,5 +8,6 @@
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
     <Compile Include="../account-manager/AccountVault.cs" Link="AccountVault.cs" />
+    <Compile Include="../auto-login/LoginProgress.cs" Link="LoginProgress.cs" />
   </ItemGroup>
 </Project>

@@ -11,7 +11,7 @@ public class TotpTest {
     }
 
     @Test public void rfc6238Sha1T1111111109s() throws Exception {
-        assertEquals("180429", Totp.codeAt(RFC_SHA1_SEED, 1111111109000L));
+        assertEquals("081804", Totp.codeAt(RFC_SHA1_SEED, 1111111109000L));
     }
 
     @Test public void invalidBase32MustFail() throws Exception {

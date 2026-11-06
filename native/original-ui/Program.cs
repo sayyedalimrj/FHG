@@ -64,6 +64,24 @@ internal static class Program
                 Process.Start(new ProcessStartInfo(manager) { WorkingDirectory = Root, UseShellExecute = false });
                 return 0;
             }
+            // Route a first-use shortcut through the account workspace:
+            // its Shown event immediately opens the config file picker.
+            // This also avoids asking for elevation before choosing a file.
+            if (AccountPaths.ActiveId == null)
+            {
+                string manager = Path.Combine(Root, "FHGAccountManager.exe");
+                if (!File.Exists(manager))
+                {
+                    Warn("FHG Accounts is missing. Reinstall the complete FHG package.");
+                    return 12;
+                }
+                Process.Start(new ProcessStartInfo(manager)
+                {
+                    WorkingDirectory = Root, UseShellExecute = false
+                });
+                return 0;
+            }
+
             bool elevated = new WindowsPrincipal(WindowsIdentity.GetCurrent())
                 .IsInRole(WindowsBuiltInRole.Administrator);
             if (elevated)

@@ -54,7 +54,7 @@ internal static class LoginProgress
         "MANUAL_REQUIRED" => "Action needed: finish password / 2FA in Firefox",
         "MANUAL_CHALLENGE" => "Action needed: complete CAPTCHA in Firefox",
         "VERIFYING" => "Checking the authenticated ChatGPT session",
-        "SUCCESS" => "LOGIN VERIFIED — switching to normal Firefox",
+        "SUCCESS" => "LOGIN VERIFIED — authenticated ChatGPT session",
         "HANDOFF_FAILED" => "Login verified, but normal Firefox did not stay open",
         "CANCELED" => "Login canceled by user",
         "ERROR" => "Login could not be verified — see FHG diagnostics",

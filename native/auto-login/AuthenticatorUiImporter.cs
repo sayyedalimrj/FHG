@@ -34,7 +34,7 @@ internal static class AuthenticatorUiImporter
             const stored = [...Object.values(local), ...Object.values(sync)];
             const exists = records.map(account => stored.some(item =>
               item && typeof item === "object" &&
-              item.type === "totp" &&
+              (item.type === "totp" || item.type === 1) &&
               item.issuer === "ChatGPT" &&
               item.account === account.label &&
               item.secret === account.secret

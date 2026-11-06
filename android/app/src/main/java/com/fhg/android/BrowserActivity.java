@@ -192,12 +192,12 @@ public final class BrowserActivity extends Activity {
             runtime = GeckoRuntime.create(getApplicationContext());
         runtime.getSettings().setLoginAutofillEnabled(true);
         installSecureAutofill();
-        session = makeSession();
+        session = makeSession(true);
         view.setSession(session);
         session.loadUri("https://chatgpt.com/auth/login");
     }
 
-    private GeckoSession makeSession() {
+    private GeckoSession makeSession(boolean openImmediately) {
         GeckoSessionSettings settings = new GeckoSessionSettings.Builder()
             .contextId(account.id).usePrivateMode(false)
             .useTrackingProtection(false).build(); // Cloudflare/MFA requires normal provider cookies; this is a ChatGPT-dedicated isolated context.
@@ -209,9 +209,12 @@ public final class BrowserActivity extends Activity {
                 // but do not create extra Android Activities / loose windows.
                 if (sessions.size() >= 4 || !NetworkGate.vpnActive(BrowserActivity.this))
                     return null;
-                GeckoSession newSession = makeSession();
+                GeckoSession newSession = makeSession(false);
+                // Mozilla's onNewSession contract requires an UNOPENED
+                // session. Gecko itself opens it upon completion.
                 parentSessions.push(current);
                 session = newSession;
+                view.releaseSession();
                 view.setSession(newSession);
                 return GeckoResult.fromValue(newSession);
             }
@@ -221,6 +224,7 @@ public final class BrowserActivity extends Activity {
                 if (closing == session && !parentSessions.isEmpty()) {
                     GeckoSession parent = parentSessions.pop();
                     session = parent;
+                    view.releaseSession();
                     view.setSession(parent);
                     closeChild(closing);
                 } else if (closing == session) {
@@ -243,7 +247,7 @@ public final class BrowserActivity extends Activity {
                 return GeckoResult.fromValue(request.dismiss());
             }
         });
-        child.open(runtime);
+        if (openImmediately) child.open(runtime);
         sessions.add(child);
         return child;
     }
@@ -313,6 +317,7 @@ public final class BrowserActivity extends Activity {
         if (!parentSessions.isEmpty()) {
             GeckoSession close = session;
             session = parentSessions.pop();
+            view.releaseSession();
             view.setSession(session);
             closeChild(close);
         } else session.goBack();

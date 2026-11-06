@@ -10,8 +10,8 @@ android {
         applicationId 'com.fhg.android.secure'
         minSdk 26
         targetSdk 35
-        versionCode 101
-        versionName '1.0.0-rc.2'
+        versionCode 102
+        versionName '1.0.0-rc.3'
 
         // One architecture only: Android phones with 64-bit ARM CPUs.
         // Strips x86, x86_64 and 32-bit ARM native engines (libbox and

@@ -104,7 +104,9 @@ internal sealed class WorkspaceWindow : Form
         copyUser.SetBounds(317,44,124,34);bottom.Controls.Add(copyUser);
         var copyPass=MakeButton("Copy password",144,false);
         copyPass.SetBounds(453,44,144,34);bottom.Controls.Add(copyPass);
-        hint.SetBounds(612,47,400,30);bottom.Controls.Add(hint);
+        hint.SetBounds(612,47,400,30);
+        hint.Text="Target timezone: Europe/Berlin (CET / CEST)";
+        bottom.Controls.Add(hint);
         check.Click+=async(_,_)=>await CheckConnection();
         files.Click+=(_,_)=>Safely(OpenAccountFolder);
         copyUser.Click+=(_,_)=>Safely(()=>CopySecret(Selected().Label,"Email",45));

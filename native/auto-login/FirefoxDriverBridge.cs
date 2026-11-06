@@ -191,7 +191,8 @@ internal sealed class FirefoxDriverBridge : IDisposable
             {
                 // Deleting session terminates the automation browser and
                 // flushes its account-specific profile before normal Firefox starts.
-                Request(HttpMethod.Delete, PathFor(""), null);
+                Request(HttpMethod.Delete,
+                    "session/" + Uri.EscapeDataString(sessionId), null);
             }
         }
         catch {}

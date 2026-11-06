@@ -81,12 +81,15 @@ internal static class Program
                 "NEVER-A-REAL-PASSWORD", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
                 "https://example.invalid/unused", DateTimeOffset.UtcNow);
             string first = AuthenticatorUiImporter.Sync(driver, new [] { fake });
-            if (first != "OK") {
+            if (first != "OK:0" && first != "SUBMITTED:1") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_FIRST_SYNC:" + first);
                 return 54;
             }
+            Thread.Sleep(1600);
+            // The second pass must find the imported seed in the extension's
+            // OWN storage and report zero new accounts (idempotence).
             string second = AuthenticatorUiImporter.Sync(driver, new [] { fake });
-            if (second != "OK") {
+            if (second != "OK:0") {
                 Console.Error.WriteLine("CI_ORIGINAL_AUTHENTICATOR_REPEAT_SYNC:" + second);
                 return 55;
             }

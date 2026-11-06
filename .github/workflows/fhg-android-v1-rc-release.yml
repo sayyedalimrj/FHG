@@ -1,9 +1,9 @@
-name: FHG Secure Android v1.0.0 RC6 signed release build
+name: FHG Secure Android v1.0.0 RC6.1 signed release build
 
 on:
   push:
     branches:
-      - android-rc6-professional-dashboard-20261106
+      - android-rc6-1-final-ui-20261106
     paths:
       - 'android/**'
       - '.github/workflows/fhg-android-v1-rc-release.yml'
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "applicationId 'com.fhg.android.secure.rc6'" android/app/build.gradle
+          grep -q "applicationId 'com.fhg.android.secure.rc61'" android/app/build.gradle
           grep -q 'native-validated profile' android/README.md || true
           grep -q "abiFilters 'arm64-v8a'" android/app/build.gradle
           grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
@@ -155,7 +155,7 @@ jobs:
             chmod 600 "$KEYSTORE"
             echo 'WARNING: RC is signed with ephemeral key; future upgrade needs a stable signing secret'
           fi
-          OUTPUT=dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk
+          OUTPUT=dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk
           "$BUILD_TOOLS/zipalign" -f -p 4 "$RAW_APK" /tmp/fhg-aligned.apk
           "$BUILD_TOOLS/apksigner" sign \
             --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
@@ -163,9 +163,9 @@ jobs:
             --out "$OUTPUT" /tmp/fhg-aligned.apk
           "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$OUTPUT"
           "$BUILD_TOOLS/aapt" dump badging "$OUTPUT" > /tmp/fhg-badging.txt
-          grep -q "package: name='com.fhg.android.secure.rc6'" /tmp/fhg-badging.txt
+          grep -q "package: name='com.fhg.android.secure.rc61'" /tmp/fhg-badging.txt
           grep -q "sdkVersion:'26'" /tmp/fhg-badging.txt
-          grep -q "versionName='1.0.0-rc.6'" /tmp/fhg-badging.txt
+          grep -q "versionName='1.0.0-rc.6.1'" /tmp/fhg-badging.txt
           if grep -q 'application-debuggable' /tmp/fhg-badging.txt; then
             echo 'SECURITY ERROR: Release APK is debuggable' >&2
             exit 1
@@ -185,10 +185,10 @@ jobs:
           rm -f "$KEYSTORE" /tmp/fhg-aligned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: FHG-Secure-Android-1.0.0-rc6-ARM64
+          name: FHG-Secure-Android-1.0.0-rc6.1-ARM64
           path: |
-            dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk
-            dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk.sha256
+            dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk
+            dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk.sha256
           if-no-files-found: error
       - name: Publish immutable FHG Secure Android release candidate
         shell: bash
@@ -196,16 +196,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="android-v1.0.0-rc.6"
+          TAG="android-v1.0.0-rc.6.1"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Refusing to overwrite existing signed release" >&2
             exit 1
           fi
-          test -s dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk
+          test -s dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk
           gh release create "$TAG" \
-            dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk \
-            dist/FHG-Secure-Android-1.0.0-rc6-ARM64.apk.sha256 \
+            dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk \
+            dist/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk.sha256 \
             --target "$GITHUB_SHA" \
-            --title 'FHG Secure Android 1.0 RC6 — GeckoView + sing-box VPN' \
+            --title 'FHG Secure Android 1.0 RC6.1 — GeckoView + sing-box VPN' \
             --notes-file android/V1-AUDIT.md \
             --prerelease --latest=false

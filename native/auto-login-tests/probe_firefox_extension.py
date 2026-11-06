@@ -60,6 +60,14 @@ try:
             "script":"const done=arguments[arguments.length-1];ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs').AddonManager.getAddonByID('{55f61747-c3d3-4425-97f9-dfc19a0be23c}').then(a=>done(a?{installed:true,active:a.isActive,signed:a.signedState,disabled:a.appDisabled}:{installed:false})).catch(()=>done({error:'AddonManagerUnavailable'}));",
             "args":[]})
         print("SIGNED_TIMEZONE_ADDON_STATE",timezone)
+        openTZ=call("POST",f"session/{session}/execute/sync",{
+            "script":"const m=JSON.parse(Services.prefs.getStringPref('extensions.webextensions.uuids','{}'));const id=m['{55f61747-c3d3-4425-97f9-dfc19a0be23c}'];const u='moz-extension://'+id+'/data/options/index.html';gBrowser.selectedBrowser.loadURI(u,{triggeringPrincipal:Services.scriptSecurityManager.getSystemPrincipal()});return !!id;",
+            "args":[]})
+        print("OPEN_TIMEZONE_OPTIONS",openTZ)
+        call("POST",f"session/{session}/moz/context",{"context":"content"})
+        url=call("GET",f"session/{session}/url")
+        print("TIMEZONE_OPTIONS_PROTOCOL",url.split(":")[0] if isinstance(url,str) else "unknown")
+        call("POST",f"session/{session}/moz/context",{"context":"chrome"})
         if c is True:
             d=call("POST",f"session/{session}/execute/sync",{
                 "script":"const S=ChromeUtils.importESModule('resource://gre/modules/Services.sys.mjs').Services;const m=JSON.parse(S.prefs.getStringPref('extensions.webextensions.uuids','{}'));const u='moz-extension://'+m['authenticator@mymindstorm']+'/view/import.html?TextImport';gBrowser.selectedTab=gBrowser.addTab(u,{triggeringPrincipal:S.scriptSecurityManager.getSystemPrincipal()});return true;",

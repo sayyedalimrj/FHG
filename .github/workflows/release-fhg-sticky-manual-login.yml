@@ -77,9 +77,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download v0.6.0 --repo $env:GITHUB_REPOSITORY --pattern FHG-Setup-Windows-x64-0.6.0-preview.exe --dir $env:RUNNER_TEMP
+          gh release download v0.6.0 --repo $env:GITHUB_REPOSITORY --pattern FHG-Setup-Windows-x64-0.6.0.exe --dir $env:RUNNER_TEMP
           if ($LASTEXITCODE -ne 0) {throw 'Could not download existing complete baseline'}
-          $base=Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          $base=Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0.exe'
           $sha=(Get-FileHash $base -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($sha -ne 'd71e876a0bf8fae949b95c042bc3703c17bc2a0f0597e369d713c4201e675395') {
             throw 'Pinned previous installer SHA256 mismatch'

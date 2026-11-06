@@ -1,0 +1,122 @@
+name: FHG original Authenticator test.5 Windows release
+on:
+  push:
+    branches:
+      - fix-original-authenticator-storage-20261106
+    paths:
+      - .github/workflows/release-original-authenticator-test5.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    if: github.repository == 'sayyedalimrj/FHG'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test original Authenticator SQLite schema and FHG vault
+        shell: pwsh
+        run: |
+          dotnet run --project native/authenticator-sync-tests/FHG.AuthenticatorSync.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Original Authenticator SQLite integration tests failed' }
+          dotnet run --project native/account-vault-tests/FHG.VaultTests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'FHG vault regression failed' }
+      - name: Build only FHG launcher, account UI, and original Authenticator sync
+        shell: pwsh
+        run: |
+          python native/app/resources/generate_icon.py native/original-ui/Assets/FHG.ico
+          if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed' }
+          dotnet publish native/account-manager/FHGAccountManager.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-accounts
+          if ($LASTEXITCODE -ne 0) { throw 'FHG Account Manager compile failed' }
+          dotnet publish native/original-ui/FHG.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-launcher
+          if ($LASTEXITCODE -ne 0) { throw 'FHG Launcher compile failed' }
+          dotnet publish native/authenticator-sync/FHGAuthenticatorSync.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish-auth-sync
+          if ($LASTEXITCODE -ne 0) { throw 'Original Authenticator patcher compile failed' }
+          foreach($p in @('publish-accounts/FHGAccountManager.exe','publish-launcher/FHG.exe','publish-auth-sync/FHGAuthenticatorSync.exe')){
+            if (!(Test-Path $p)) { throw "Missing executable: $p" }
+          }
+      - name: Fetch pinned original FHG Hiddify Firefox and Guard binaries
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v0.6.0-test.3 --repo $env:GITHUB_REPOSITORY --pattern 'FHG-Setup-Windows-x64-0.6.0-preview.exe' --dir $env:RUNNER_TEMP
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot download test.3 baseline' }
+          $base=Join-Path $env:RUNNER_TEMP 'FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          $sha=(Get-FileHash $base -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($sha -ne '529ff15ae259ea51aa1bd668336f125bf39d2245ae1ccb34293c709bb2dd9698') { throw 'Pinned baseline hash mismatch' }
+          $install=Join-Path $env:RUNNER_TEMP 'FHGOriginalBaseline'
+          $result=Start-Process -FilePath $base -PassThru -Wait -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$install))
+          if ($result.ExitCode -ne 0) {throw 'Baseline extraction/install failed'}
+          foreach($p in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','Firefox/firefox.exe','Hiddify/FHGProxy.exe','licenses/Hiddify-LICENSE.md')) {
+            if (!(Test-Path (Join-Path $install $p))) { throw "Missing source: $p" }
+          }
+          New-Item -ItemType Directory stage -Force | Out-Null
+          Copy-Item (Join-Path $install '*') stage -Recurse -Force
+          Copy-Item publish-launcher/FHG.exe stage/FHG.exe -Force
+          Copy-Item publish-accounts/FHGAccountManager.exe stage/FHGAccountManager.exe -Force
+          Copy-Item publish-auth-sync/FHGAuthenticatorSync.exe stage/FHGAuthenticatorSync.exe -Force
+          foreach($immutable in @('FHGGuard.exe','Hiddify/FHGProxy.exe','Firefox/firefox.exe','Firefox/distribution/fhg-authenticator.xpi')) {
+            $src=Join-Path $install $immutable
+            $dst=Join-Path stage $immutable
+            if (!(Test-Path $src) -or !(Test-Path $dst)) { throw "Missing original component $immutable" }
+            if ((Get-FileHash $src -Algorithm SHA256).Hash -ne (Get-FileHash $dst -Algorithm SHA256).Hash) {
+              throw "Original Firefox/Hiddify/Add-on component changed: $immutable"
+            }
+          }
+          if (Test-Path stage/Firefox/distribution/fhg-auto-authenticator.xpi) { throw 'Custom Authenticator extension must NOT be bundled' }
+          $p=(Get-Content stage/Firefox/distribution/policies.json -Raw | ConvertFrom-Json).policies
+          if (!$p.ExtensionSettings.'authenticator@mymindstorm' -or $p.ExtensionSettings.'fhg-authenticator@fhg.local') {
+            throw 'Must keep original Mozilla-signed Authenticator policy'
+          }
+          Write-Host 'PASS: original signed mymindstorm extension, Firefox, Hiddify, Guard untouched'
+      - name: Compile and smoke-test complete FHG Windows installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' packaging/FHG-Setup.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          $exe='installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe'
+          if (!(Test-Path $exe)) { throw 'Missing standalone setup EXE' }
+          $destination=Join-Path $env:RUNNER_TEMP 'FHGOriginalAuthenticatorInstalled'
+          $test=Start-Process -FilePath (Resolve-Path $exe).Path -PassThru -Wait -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',("/DIR="+$destination))
+          if ($test.ExitCode -ne 0) { throw "Installer smoke test failed $($test.ExitCode)" }
+          foreach($p in @('FHG.exe','FHGGuard.exe','FHGAccountManager.exe','FHGAuthenticatorSync.exe','Firefox/firefox.exe','Firefox/distribution/fhg-authenticator.xpi','Hiddify/FHGProxy.exe')) {
+            if (!(Test-Path (Join-Path $destination $p))) { throw "Missing test-installed file: $p" }
+          }
+          foreach($p in @('FHG.exe','FHGAccountManager.exe','FHGAuthenticatorSync.exe','FHGGuard.exe','Firefox/firefox.exe','Hiddify/FHGProxy.exe','Firefox/distribution/fhg-authenticator.xpi')) {
+            if ((Get-FileHash (Join-Path stage $p)).Hash -ne (Get-FileHash (Join-Path $destination $p)).Hash) { throw "Package corruption: $p" }
+          }
+          if (Test-Path (Join-Path $destination 'Firefox/distribution/fhg-auto-authenticator.xpi')) {throw 'Wrong extension installed'}
+          $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText(($exe+'.sha256'),($hash+'  FHG-Setup-Windows-x64-0.6.0-preview.exe'+[Environment]::NewLine),[Text.Encoding]::ASCII)
+          Write-Host "PASS: complete FHG Windows test.5 installer and original signed Authenticator SHA256=$hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-Setup-original-Authenticator-v0.6.0-test.5
+          path: |
+            installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe
+            installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe.sha256
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish unsigned test.5 to GitHub Releases with retry
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v0.6.0-test.3 --repo $env:GITHUB_REPOSITORY --pattern FHG-HIDDIFY-SOURCE.patch --dir .
+          if ($LASTEXITCODE -ne 0) {throw 'GPL source patch missing'}
+          gh release view v0.6.0-test.5 --repo $env:GITHUB_REPOSITORY --json tagName 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw 'Release tag already exists; refusing to replace published binary' }
+          $done=$false
+          for($i=1;$i -le 4;$i++){
+            gh release create v0.6.0-test.5 installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe installer-output/FHG-Setup-Windows-x64-0.6.0-preview.exe.sha256 FHG-HIDDIFY-SOURCE.patch --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title 'FHG v0.6.0-test.5 Original Authenticator Storage (UNSIGNED)' --notes-file docs/RELEASE-v0.6.0-test.5.md --prerelease --latest=false
+            if ($LASTEXITCODE -eq 0) {$done=$true;break}
+            Start-Sleep -Seconds (5*$i)
+          }
+          if (!$done) {throw 'GitHub Release API unavailable. CI artifact remains available'}

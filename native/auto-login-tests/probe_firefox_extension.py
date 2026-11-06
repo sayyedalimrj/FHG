@@ -52,6 +52,14 @@ try:
             "script":"const S=Services;const m=JSON.parse(S.prefs.getStringPref('extensions.webextensions.uuids','{}'));return !!m['authenticator@mymindstorm'];",
             "args":[]})
         print("SIGNED_ADDON_UUID_EXISTS",c)
+        tz=call("POST",f"session/{session}/execute/sync",{
+            "script":"const m=JSON.parse(Services.prefs.getStringPref('extensions.webextensions.uuids','{}'));return Object.keys(m).filter(k=>k.includes('55f61747')||k.includes('authenticator'));",
+            "args":[]})
+        print("SIGNED_ADDON_INSTALL_IDS",tz)
+        timezone=call("POST",f"session/{session}/execute/async",{
+            "script":"const done=arguments[arguments.length-1];ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs').AddonManager.getAddonByID('{55f61747-c3d3-4425-97f9-dfc19a0be23c}').then(a=>done(a?{installed:true,active:a.isActive,signed:a.signedState,disabled:a.appDisabled}:{installed:false})).catch(()=>done({error:'AddonManagerUnavailable'}));",
+            "args":[]})
+        print("SIGNED_TIMEZONE_ADDON_STATE",timezone)
         if c is True:
             d=call("POST",f"session/{session}/execute/sync",{
                 "script":"const S=ChromeUtils.importESModule('resource://gre/modules/Services.sys.mjs').Services;const m=JSON.parse(S.prefs.getStringPref('extensions.webextensions.uuids','{}'));const u='moz-extension://'+m['authenticator@mymindstorm']+'/view/import.html?TextImport';gBrowser.selectedTab=gBrowser.addTab(u,{triggeringPrincipal:S.scriptSecurityManager.getSystemPrincipal()});return true;",

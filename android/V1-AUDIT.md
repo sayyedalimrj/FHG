@@ -1,4 +1,4 @@
-# FHG Secure Android 1.0 RC3 — architecture, security, UI and release audit
+# FHG Secure Android 1.0 RC4 — architecture, security, UI and release audit
 
 **Scope:** native Android/GeckoView browser, AES-GCM Android Keystore vault, first-run account file, Hiddify-style proxy subscriptions, single-app sing-box native VPN, privacy controls and user interface.
 
@@ -82,10 +82,12 @@ Manual Continue / CAPTCHA / MFA / OAuth; bound, in-view popup sessions
 **Decision:** deliver as a source-backed, testable **v1.0.0 release candidate**. Do not label the tunnel or OS-wide leak protection “production verified” until the unchecked items pass.
 
 
-## RC3 focused changes — server choice and crash diagnosis
+## RC4 focused changes — server choice and crash diagnosis
 
 - Imported location labels (V2Ray fragment, VMess ps, Clash name, sing-box tag) are retained as sanitized native outbound tags.
 - Server/location chooser changes the actual sing-box final route and encrypted DNS detour; auto urltest remains optional and manually selected servers bypass auto selection.
 - Automatic subscription refresh preserves an explicitly selected server when its tag remains available.
 - Durable non-secret phase marker identifies where an Android/native VPN startup was interrupted after a crash or OS process termination.
 - Release candidate only: a physical device, real credentials, IPv4/IPv6/DNS leak checks and native crash logcat are still required. Successful CI is not proof that the user's 21-server profile connects.
+
+RC4 installs side by side with prior ephemeral-key release candidates under a distinct package ID, preserving the previous vault. Reimport the four-line file into RC4. On first run, use a single explicit server; auto URL-test (all nodes) is available by deliberate selection.

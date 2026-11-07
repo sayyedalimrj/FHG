@@ -10,7 +10,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="FHG Secure RC6.1"
+        android:label="FHG Secure RC7"
         android:theme="@style/FhgSecureTheme"
         android:icon="@drawable/fhg_icon"
         android:supportsRtl="true">

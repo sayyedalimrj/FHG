@@ -7,15 +7,13 @@ android {
     compileSdk 37
 
     defaultConfig {
-        applicationId 'com.fhg.android.secure.rc8'
+        applicationId 'com.fhg.android.secure.hiddify'
         minSdk 26
         targetSdk 35
-        versionCode 109
-        versionName '1.0.0-rc.8'
+        versionCode 110
+        versionName '1.0.0-hiddify-bridge.1'
 
-        // One architecture only: Android phones with 64-bit ARM CPUs.
-        // Strips x86, x86_64 and 32-bit ARM native engines (libbox and
-        // GeckoView) from the delivered APK; no VPN/browser code removed.
+        // GeckoView browser retained; libbox no longer bundled or used.
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -57,8 +55,4 @@ dependencies {
     implementation 'org.mozilla.geckoview:geckoview:159.0.20261022150525'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20250517'
-    // GPLv3 libbox: pinned official release, downloaded and hash-checked by CI.
-    implementation files('libs/libbox.aar')
-    // Apache 2.0: parse common Clash YAML subscriptions without code execution.
-    implementation 'org.yaml:snakeyaml:2.5'
 }

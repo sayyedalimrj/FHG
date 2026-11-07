@@ -48,7 +48,7 @@ final class NetworkGate {
                 !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
                 !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET))
                 return null;
-            if(Build.VERSION.SDK_INT>=29) {
+            if(Build.VERSION.SDK_INT>=30) {
                 int owner=caps.getOwnerUid();
                 if(owner>=0) {
                     int trustedUid;

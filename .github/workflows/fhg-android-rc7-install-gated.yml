@@ -176,8 +176,7 @@ jobs:
       - name: Verify exact artifact checksum before installation
         run: |
           set -euo pipefail
-          cd dist
-          sha256sum -c FHG-Secure-Android-1.0.0-rc7-ARM64.apk.sha256
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc7-ARM64.apk.sha256
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -235,8 +234,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd dist
-          sha256sum -c FHG-Secure-Android-1.0.0-rc7-ARM64.apk.sha256
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc7-ARM64.apk.sha256
           cd ..
           TAG='android-v1.0.0-rc.7'
           if gh release view "$TAG" >/dev/null 2>&1; then

@@ -42,8 +42,14 @@ echo "=== Is app still alive? ==="
 adb shell pidof com.fhg.android.secure.rc61 || true
 adb logcat -d -b crash -v time > install-forensics/crash-buffer.txt || true
 adb logcat -d -v time > install-forensics/main-buffer.txt || true
-adb shell screencap -p /sdcard/fhg-rc61-home.png || true
-adb pull /sdcard/fhg-rc61-home.png install-forensics/rc61-home.png || true
+adb shell screencap -p /sdcard/fhg-rc61-first-screen.png || true
+adb pull /sdcard/fhg-rc61-first-screen.png install-forensics/rc61-first-screen.png || true
+echo "=== Dismiss the first-run file picker and inspect actual FHG dashboard ==="
+adb shell input keyevent 4 || true
+sleep 3
+adb shell screencap -p /sdcard/fhg-rc61-dashboard.png || true
+adb pull /sdcard/fhg-rc61-dashboard.png install-forensics/rc61-dashboard.png || true
+adb shell pidof com.fhg.android.secure.rc61 || true
 echo "=== Reinstall exact same RC6.1 APK as an update ==="
 set +e
 adb install -r /tmp/fhg-apks/rc61.apk

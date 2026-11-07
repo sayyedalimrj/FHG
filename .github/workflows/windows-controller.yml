@@ -144,7 +144,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: FHG-experimental-OFFLINE-browser-windows-x64
           path: release-assets

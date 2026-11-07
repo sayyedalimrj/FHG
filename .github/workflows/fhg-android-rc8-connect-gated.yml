@@ -1,8 +1,8 @@
-name: FHG RC8 verified APK build + Android 15/16 install gate
+name: FHG RC8 real native VPN Connect and crash-containment gate
 on:
   push:
     branches:
-      - android-rc8-install-verified-20261107
+      - android-rc8-native-crash-containment-20261107
     paths:
       - 'android/**'
       - '.github/scripts/fhg-rc8-connect-smoke.sh'

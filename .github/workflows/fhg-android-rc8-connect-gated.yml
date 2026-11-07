@@ -1,0 +1,239 @@
+name: FHG RC8 verified APK build + Android 15/16 install gate
+on:
+  push:
+    branches:
+      - android-rc8-install-verified-20261107
+    paths:
+      - 'android/**'
+      - '.github/scripts/fhg-rc8-connect-smoke.sh'
+      - '.github/workflows/fhg-android-rc8-connect-gated.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fhg-android-rc8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Provision Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37.0" "build-tools;36.0.0"
+          test -d "$SDK_ROOT/platforms/android-37.0"
+          if [ ! -e "$SDK_ROOT/platforms/android-37" ]; then
+            ln -s android-37.0 "$SDK_ROOT/platforms/android-37"
+          fi
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Verify pinned native engine and protect user security properties
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "applicationId 'com.fhg.android.secure.rc8'" android/app/build.gradle
+          grep -q 'useLegacyPackaging true' android/app/build.gradle
+          grep -q 'NetworkAddressSanitizer.cidr(' android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          grep -q 'NetworkGate.vpnActive(this)' android/app/src/main/java/com/fhg/android/MainActivity.java
+          grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.BIND_VPN_SERVICE' android/app/src/main/AndroidManifest.xml
+          grep -q 'AndroidKeyStore' android/app/src/main/java/com/fhg/android/AccountStore.java
+          mkdir -p android/app/libs
+          curl -fL --retry 4 --retry-delay 5 --max-time 350 \
+            'https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar' \
+            -o android/app/libs/libbox.aar
+          echo 'd2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  android/app/libs/libbox.aar' | sha256sum -c -
+      - name: Compile, unit tests, Lint and release
+        working-directory: android
+        env:
+          FHG_CONFIG_FIXTURE_DIR: ${{ github.workspace }}/android/app/build/fhg-native-fixtures
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease :app:lintDebug
+      - name: Test 8 generated profiles with real sing-box engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --max-time 120 \
+            'https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-linux-amd64.tar.gz' -o /tmp/fhg-singbox.tar.gz
+          echo '699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968  /tmp/fhg-singbox.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/fhg-singbox
+          tar -xzf /tmp/fhg-singbox.tar.gz -C /tmp/fhg-singbox
+          SB="$(find /tmp/fhg-singbox -type f -name sing-box -print -quit)"
+          test -n "$SB"
+          chmod +x "$SB"
+          count=0
+          for f in android/app/build/fhg-native-fixtures/*.json; do
+            "$SB" check -c "$f"
+            count=$((count+1))
+          done
+          test "$count" -eq 8
+      - name: Sign, verify, inspect native libraries, and hash
+        shell: bash
+        env:
+          FHG_KEYSTORE_B64: ${{ secrets.FHG_APK_KEYSTORE_BASE64 }}
+          FHG_STORE_PASSWORD: ${{ secrets.FHG_APK_KEYSTORE_PASSWORD }}
+          FHG_KEY_ALIAS: ${{ secrets.FHG_APK_KEY_ALIAS }}
+          FHG_KEY_PASSWORD: ${{ secrets.FHG_APK_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          export STOREPASS KEYPASS KEY_ALIAS
+          RAW_APK=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          test -s "$RAW_APK"
+          BUILD_TOOLS="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0"
+          KEYSTORE=/tmp/fhg-rc8.jks
+          if [ -n "$FHG_KEYSTORE_B64" ]; then
+            test -n "$FHG_STORE_PASSWORD"
+            test -n "$FHG_KEY_ALIAS"
+            test -n "$FHG_KEY_PASSWORD"
+            printf '%s' "$FHG_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+            STOREPASS="$FHG_STORE_PASSWORD"
+            KEYPASS="$FHG_KEY_PASSWORD"
+            KEY_ALIAS="$FHG_KEY_ALIAS"
+            echo 'Stable signing key supplied from GitHub secrets'
+          else
+            STOREPASS="$(openssl rand -hex 24)"
+            KEYPASS="$STOREPASS"
+            KEY_ALIAS=fhg-rc8
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE" -storetype PKCS12 \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 3072 -validity 3650 \
+              -dname "CN=FHG RC8,O=FHG" -storepass "$STOREPASS" -keypass "$KEYPASS" >/dev/null 2>&1
+            echo 'WARNING: ephemeral RC signer; not suitable for future production upgrades'
+          fi
+          mkdir -p dist
+          "$BUILD_TOOLS/zipalign" -f -P 16 -v 4 "$RAW_APK" /tmp/fhg-rc8-aligned.apk > /tmp/fhg-align-log
+          APK=dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk
+          "$BUILD_TOOLS/apksigner" sign --v1-signing-enabled true \
+            --v2-signing-enabled true --v3-signing-enabled true \
+            --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STOREPASS --key-pass env:KEYPASS \
+            --out "$APK" /tmp/fhg-rc8-aligned.apk
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs \
+            --min-sdk-version 26 --max-sdk-version 36 "$APK"
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$APK" | tail -3
+          "$BUILD_TOOLS/aapt" dump badging "$APK" > /tmp/fhg-badging.txt
+          grep -q "package: name='com.fhg.android.secure.rc8'" /tmp/fhg-badging.txt
+          grep -q "sdkVersion:'26'" /tmp/fhg-badging.txt
+          grep -q "versionName='1.0.0-rc.8'" /tmp/fhg-badging.txt
+          if grep -q 'application-debuggable' /tmp/fhg-badging.txt; then
+            echo 'Release debuggable: refusing publication'; exit 1
+          fi
+          unzip -t "$APK" | tail -2
+          python3 - "$APK" <<'PY'
+          import zipfile,sys,subprocess,tempfile,pathlib
+          apk=zipfile.ZipFile(sys.argv[1])
+          native=[i for i in apk.infolist() if i.filename.startswith('lib/') and i.filename.endswith('.so')]
+          assert len(native)>=10, "Missing native engine or GeckoView"
+          assert all(i.filename.startswith('lib/arm64-v8a/') for i in native)
+          assert all(i.compress_type==zipfile.ZIP_DEFLATED for i in native), "Unexpected native extraction semantics"
+          for item in native:
+              with tempfile.TemporaryDirectory() as tmp:
+                  f=pathlib.Path(tmp)/'a.so'
+                  f.write_bytes(apk.read(item))
+                  p=subprocess.run(['readelf','-W','-l',str(f)],text=True,capture_output=True,check=True)
+                  aligns=[int(l.split()[-1],16) for l in p.stdout.splitlines() if l.strip().startswith('LOAD ')]
+                  assert aligns and min(aligns)>=16384, (item.filename,aligns)
+          print('PASS: all',len(native),'ARM64 native libraries have >=16-KiB ELF LOAD alignment')
+          PY
+          # Debug harness is assembled from the SAME sources but never
+          # shipped as a release; native start tests run on throwaway emulator.
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/FHG-RC8-debug-test.apk
+          test -s dist/FHG-RC8-debug-test.apk
+          "$BUILD_TOOLS/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/fhg-release-manifest.txt
+          if grep -q 'DebugVpnSmokeReceiver' /tmp/fhg-release-manifest.txt; then
+            echo 'Debug test receiver leaked into release!'; exit 1
+          fi
+          grep -q 'VpnRuntimeState' /tmp/fhg-release-manifest.txt
+          grep -q ':vpn' /tmp/fhg-release-manifest.txt
+          sha256sum "$APK" > "$APK.sha256"
+          echo "APK_BYTES=$(stat -c%s "$APK")" > dist/BUILD_INFO.txt
+          "$BUILD_TOOLS/aapt" dump badging "$APK" | grep -E '^(package|sdkVersion|targetSdkVersion|native-code):' >> dist/BUILD_INFO.txt
+          rm -f "$KEYSTORE" /tmp/fhg-rc8-aligned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-RC8-SIGNED-APK
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  install:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [35, 36]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-RC8-SIGNED-APK
+          path: dist
+      - name: Verify exact artifact checksum before installation
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Connect synthetic TUN via real libbox and preserve UI process on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: bash .github/scripts/fhg-rc8-connect-smoke.sh ${{ matrix.api }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FHG-RC8-INSTALL-PROOF-${{ matrix.api }}
+          path: install-proof/
+          if-no-files-found: warn
+
+  publish:
+    needs: [build, install]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-RC8-SIGNED-APK
+          path: dist
+      - name: Publish ONLY after real native TUN Connect tests on Android 15 and 16
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256
+          TAG='android-v1.0.0-rc.8'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Refusing to overwrite existing release'; exit 1
+          fi
+          gh release create "$TAG" \
+            dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk \
+            dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256 \
+            dist/BUILD_INFO.txt \
+            --target "$GITHUB_SHA" \
+            --title 'FHG Secure Android RC8 — real VPN Connect tested on Android 15 / 16' \
+            --notes-file android/V1-AUDIT.md \
+            --prerelease --latest=false

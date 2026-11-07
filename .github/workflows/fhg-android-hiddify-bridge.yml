@@ -1,0 +1,174 @@
+name: FHG Android Hiddify-backed workspace CI
+on:
+  push:
+    branches: [android-hiddify-delegated-20261107]
+    paths:
+      - 'android/**'
+      - '.github/workflows/fhg-android-hiddify-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fhg-hiddify-bridge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-37.0" "build-tools;36.0.0"
+          test -d "$SDK_ROOT/platforms/android-37.0"
+          test -e "$SDK_ROOT/platforms/android-37" || ln -s android-37.0 "$SDK_ROOT/platforms/android-37"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+      - name: Assert NO custom VPN can be registered in this build
+        run: |
+          set -euo pipefail
+          test ! -f android/app/src/main/java/com/fhg/android/EmbeddedVpnService.java
+          test ! -f android/app/src/main/java/com/fhg/android/VpnEngineSetup.java
+          test ! -f android/app/src/main/java/com/fhg/android/VpnConfig.java
+          ! grep -q 'implementation files.*libbox' android/app/build.gradle
+          ! grep -q 'android.net.VpnService' android/app/src/main/AndroidManifest.xml
+          ! grep -q 'android.permission.BIND_VPN_SERVICE' android/app/src/main/AndroidManifest.xml
+          grep -q 'app.hiddify.com' android/app/src/main/AndroidManifest.xml
+          grep -q 'hiddify' android/app/src/main/java/com/fhg/android/HiddifyBridge.java
+          grep -q 'network.openConnection' android/app/src/main/java/com/fhg/android/NetworkGate.java
+          grep -q 'NetworkGate.vpnActive(this)' android/app/src/main/java/com/fhg/android/BrowserActivity.java
+          grep -q 'usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
+          grep -q 'android:allowBackup="false"' android/app/src/main/AndroidManifest.xml
+          echo 'PASS: zero in-app VPN, secure official-Hiddify external network verification'
+      - name: Compile, unit-test, Lint, and package
+        working-directory: android
+        run: |
+          gradle --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleRelease :app:lintDebug
+      - name: Sign and inspect release APK
+        env:
+          FHG_KEYSTORE_B64: ${{ secrets.FHG_APK_KEYSTORE_BASE64 }}
+          FHG_STORE_PASSWORD: ${{ secrets.FHG_APK_KEYSTORE_PASSWORD }}
+          FHG_KEY_ALIAS: ${{ secrets.FHG_APK_KEY_ALIAS }}
+          FHG_KEY_PASSWORD: ${{ secrets.FHG_APK_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export STOREPASS KEYPASS KEY_ALIAS
+          KEYSTORE=/tmp/fhg-bridge.jks
+          if [ -n "$FHG_KEYSTORE_B64" ]; then
+            printf '%s' "$FHG_KEYSTORE_B64" | base64 -d > "$KEYSTORE"
+            STOREPASS="$FHG_STORE_PASSWORD"; KEYPASS="$FHG_KEY_PASSWORD"
+            KEY_ALIAS="$FHG_KEY_ALIAS"
+            echo 'Stable signing key provided'
+          else
+            STOREPASS="$(openssl rand -hex 24)"
+            KEYPASS="$STOREPASS"
+            KEY_ALIAS=fhg-bridge
+            keytool -genkeypair -noprompt -keystore "$KEYSTORE" -storetype PKCS12 \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 3072 -validity 3650 \
+              -dname "CN=FHG Hiddify Bridge,O=FHG" \
+              -storepass "$STOREPASS" -keypass "$KEYPASS" >/dev/null
+            echo 'WARNING: temporary test signing key, not for production updates'
+          fi
+          TOOLS="${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools/36.0.0"
+          RAW=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          mkdir -p dist
+          "$TOOLS/zipalign" -f -P 16 4 "$RAW" /tmp/fhg-bridge-aligned.apk
+          APK=dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk
+          "$TOOLS/apksigner" sign --v1-signing-enabled true --v2-signing-enabled true \
+            --v3-signing-enabled true --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STOREPASS --key-pass env:KEYPASS --out "$APK" /tmp/fhg-bridge-aligned.apk
+          "$TOOLS/apksigner" verify --verbose --min-sdk-version 26 --max-sdk-version 36 "$APK"
+          "$TOOLS/aapt" dump badging "$APK" > /tmp/badging.txt
+          grep -q "package: name='com.fhg.android.secure.hiddify'" /tmp/badging.txt
+          unzip -t "$APK" | tail -2
+          "$TOOLS/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/merged-manifest.txt
+          ! grep -q 'EmbeddedVpnService' /tmp/merged-manifest.txt
+          ! grep -q 'BIND_VPN_SERVICE' /tmp/merged-manifest.txt
+          ! grep -q 'VpnRuntimeState' /tmp/merged-manifest.txt
+          sha256sum "$APK" > "$APK.sha256"
+          cat /tmp/badging.txt | grep -E '^(package|sdkVersion|targetSdkVersion|native-code)' > dist/BUILD_INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-HIDDIFY-BRIDGE-SIGNED
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  install:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-HIDDIFY-BRIDGE-SIGNED
+          path: dist
+      - name: Verify artifact integrity
+        run: sha256sum -c dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk.sha256
+      - name: Enable emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Signed FHG APK installation and cold start on Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -e
+            adb push dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk /data/local/tmp/fhg.apk
+            adb shell pm install -r /data/local/tmp/fhg.apk | grep -F Success
+            adb shell am start -W -n com.fhg.android.secure.hiddify/com.fhg.android.MainActivity | grep -F 'Status: ok'
+            sleep 6
+            adb shell pidof com.fhg.android.secure.hiddify
+            adb logcat -d -b crash > /tmp/fhg-crashes.txt
+            ! grep -q 'Process: com.fhg.android.secure.hiddify' /tmp/fhg-crashes.txt
+            echo 'PASS: FHG app starts without bundling a custom VPN engine'
+
+  publish:
+    needs: [build,install]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-HIDDIFY-BRIDGE-SIGNED
+          path: dist
+      - name: Publish verified bridge candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk.sha256
+          TAG=android-hiddify-bridge-v1
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite'; exit 1
+          fi
+          gh release create "$TAG" \
+            dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk \
+            dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk.sha256 \
+            dist/BUILD_INFO.txt \
+            --target "$GITHUB_SHA" \
+            --title 'FHG Secure Android — official Hiddify VPN integration (two-app preview)' \
+            --notes-file android/HIDDIFY-INTEGRATION.md \
+            --prerelease --latest=false

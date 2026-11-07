@@ -2,7 +2,9 @@ name: FHG and official Hiddify Android integration smoke
 on:
   push:
     branches: [android-hiddify-delegated-20261107]
-    paths: ['.github/workflows/fhg-hiddify-deeplink-integration.yml']
+    paths:
+      - '.github/workflows/fhg-hiddify-deeplink-integration.yml'
+      - '.github/scripts/fhg-hiddify-integrate-smoke.sh'
   workflow_dispatch:
 
 permissions:
@@ -46,23 +48,4 @@ jobs:
           profile: pixel_5
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            set -Eeuo pipefail
-            adb install -r dist/Hiddify-Android-x86_64.apk | grep -F Success
-            adb shell pm path app.hiddify.com | grep -F package:
-            adb install -r dist/FHG-Secure-Hiddify-Bridge-Android-ARM64.apk | grep -F Success
-            adb shell pm path com.fhg.android.secure.hiddify | grep -F package:
-            adb shell am start -W -n com.fhg.android.secure.hiddify/com.fhg.android.MainActivity | grep -F 'Status: ok'
-            sleep 3
-            adb shell pidof com.fhg.android.secure.hiddify
-            # The URI is intentionally synthetic and cannot leak real account data.
-            # Only test Android intent resolution; upstream confirms import via UI.
-            adb shell am start -W -a android.intent.action.VIEW \
-              -c android.intent.category.BROWSABLE \
-              -d 'hiddify://import/?url=https%3A%2F%2Fexample.invalid%2Ftest' \
-              -p app.hiddify.com | grep -F 'Status: ok'
-            sleep 5
-            adb shell pidof app.hiddify.com
-            adb logcat -d -b crash > /tmp/hiddify-smoke-crash.txt
-            ! grep -q -E 'Process: app.hiddify.com|Process: com.fhg.android.secure.hiddify' /tmp/hiddify-smoke-crash.txt
-            echo 'PASS: both APKs install and official Hiddify accepts import URI as an Android intent'
+          script: bash .github/scripts/fhg-hiddify-integrate-smoke.sh

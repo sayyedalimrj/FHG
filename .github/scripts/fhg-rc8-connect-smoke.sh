@@ -50,6 +50,13 @@ adb shell am broadcast -n "$pkg/com.fhg.android.DebugVpnSmokeReceiver" \
 sleep 1
 adb logcat -d -s FHG-SMOKE:I FHG-VPN:E '*:S' | tee "smoke-proof/native-start-${api}.txt"
 adb logcat -d -b crash > "smoke-proof/crash-${api}.txt"
+# Debug-only emulator contains synthetic credentials; capture the native
+# panic trace before this throwaway device is destroyed.
+adb logcat -d -v threadtime > "smoke-proof/full-logcat-${api}.txt"
+echo '===== NATIVE CRASH SUMMARY ====='
+grep -E -A45 -B4 'panic:|FATAL EXCEPTION|Fatal signal|SIGABRT|libbox|Go runtime|Process: com.fhg.android.secure.rc8' \
+  "smoke-proof/full-logcat-${api}.txt" | tail -160 || true
+tail -85 "smoke-proof/crash-${api}.txt" || true
 
 # Every fatal Go panic / SIGABRT is a blocker even though the UI now lives
 # in another process and must remain alive for crash reporting.

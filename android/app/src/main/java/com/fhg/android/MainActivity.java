@@ -831,7 +831,21 @@ public final class MainActivity extends Activity {
             Toast.makeText(this,"کد کپی شد",Toast.LENGTH_SHORT).show();
         }catch(Exception ignored){}
     }
-    @Override public void onResume(){super.onResume(); if(created)loadAccounts(); created=true;}
+    @Override public void onResume(){
+        super.onResume();
+        if(created)loadAccounts();
+        created=true;
+        // A synthetic, debug-only profile is seeded by the CI smoke receiver.
+        // Production builds are non-debuggable, so this code can never trigger.
+        if ((getApplicationInfo().flags &
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0 &&
+            getSharedPreferences("fhg-smoke-test",MODE_PRIVATE)
+                .getBoolean("connect_once",false)) {
+            getSharedPreferences("fhg-smoke-test",MODE_PRIVATE)
+                .edit().remove("connect_once").commit();
+            main.postDelayed(this::connectVpn,850);
+        }
+    }
     @Override protected void onDestroy(){
         importRevision++; // Ignore any late subscription download response.
         main.removeCallbacksAndMessages(null);

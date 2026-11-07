@@ -78,7 +78,7 @@ jobs:
           if (!$fhgHomeSource.Contains("const TextSpan(text: 'FHG Proxy')")) {throw 'Home banner still says Hiddify'}
           Write-Host 'PASS: bounded bootstrap import, branded UI, independent control RPC and proper diagnostics'
           Write-Host 'PASS: proxy-only policy, renamed GUI, isolated data and protected default handlers'
-      - uses: subosito/flutter-action@v2.21.0
+      - uses: subosito/flutter-action@v2.23.0
         with:
           flutter-version: '3.38.5'
           channel: stable

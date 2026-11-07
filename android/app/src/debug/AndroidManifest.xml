@@ -8,6 +8,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="com.fhg.android.DEBUG_SEED" />
+                <action android:name="com.fhg.android.DEBUG_STATUS" />
             </intent-filter>
         </receiver>
     </application>

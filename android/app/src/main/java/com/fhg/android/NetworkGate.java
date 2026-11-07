@@ -15,7 +15,7 @@ final class NetworkGate {
     private NetworkGate() {}
 
     static Network activeFhgVpnNetwork(Context context) {
-        if (!EmbeddedVpnService.isEstablished()) return null;
+        if (!VpnRuntimeState.isEstablished(context)) return null;
         return ownVpnNetwork(context);
     }
 

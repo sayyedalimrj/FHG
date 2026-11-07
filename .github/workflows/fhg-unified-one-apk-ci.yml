@@ -6,6 +6,7 @@ on:
     paths:
       - 'tools/unified_hiddify_overlay.py'
       - '.github/workflows/fhg-unified-one-apk-ci.yml'
+      - '.github/scripts/fhg-unified-one-apk-smoke.sh'
       - 'android/app/src/main/java/com/fhg/android/**'
   workflow_dispatch:
 

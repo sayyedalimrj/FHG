@@ -245,7 +245,7 @@ public final class MainActivity extends Activity {
         tagline.setTextDirection(View.TEXT_DIRECTION_LTR);
         tagline.setLetterSpacing(.055f);
         add(brand,tagline,-2,1);
-        TextView version=label("RC7",11,ACCENT,true);
+        TextView version=label("RC8",11,ACCENT,true);
         version.setGravity(Gravity.CENTER);
         version.setBackground(rounded(SOFT_ACCENT,50,0xff25665F));
         header.addView(version,new LinearLayout.LayoutParams(dp(48),dp(30)));
@@ -395,7 +395,7 @@ public final class MainActivity extends Activity {
         safety.setLineSpacing(dp(3),1f);
         add(advancedPanel,safety,-2,14);
         add(root,advancedPanel,-2,10);
-        TextView footer=label("FHG SECURE  ·  ANDROID RC7  ·  ARM64",11,MUTED,false);
+        TextView footer=label("FHG SECURE  ·  ANDROID RC8  ·  ARM64",11,MUTED,false);
         footer.setGravity(Gravity.CENTER);
         footer.setTextDirection(View.TEXT_DIRECTION_LTR);
         footer.setLetterSpacing(.04f);

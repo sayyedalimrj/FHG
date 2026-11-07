@@ -53,7 +53,6 @@ rewrite(manifest,'''    <uses-permission android:name="android.permission.INTERN
 s=manifest.read_text(encoding="utf-8")
 launcher='''            <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>'''
 assert s.count(launcher)==1, "Original Flutter launcher marker changed"

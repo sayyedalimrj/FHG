@@ -53,7 +53,7 @@ wrapper=hd/"android/gradle/wrapper/gradle-wrapper.properties"
 rewrite(wrapper,'gradle-8.7-all.zip','gradle-9.3.1-bin.zip')
 gradle_props=hd/"android/gradle.properties"
 with gradle_props.open("a",encoding="utf-8") as gp:
-    gp.write("\\nandroid.builtInKotlin=false\\nandroid.newDsl=false\\n")
+    gp.write("\nandroid.builtInKotlin=false\nandroid.newDsl=false\n")
 
 # Plugin management repositories do not affect Android app dependencies;
 # GeckoView must be available in the root *allprojects* repository set.

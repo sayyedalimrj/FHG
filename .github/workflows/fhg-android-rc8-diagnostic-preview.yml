@@ -1,0 +1,51 @@
+name: Publish FHG RC8 diagnostic preview from verified APK
+on:
+  push:
+    branches:
+      - android-rc8-native-crash-containment-20261107
+    paths:
+      - '.github/workflows/fhg-android-rc8-diagnostic-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  preview:
+    if: github.repository == 'sayyedalimrj/FHG'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm exact compiled artifact and no accidental success claim
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api repos/sayyedalimrj/FHG/actions/runs/42354243961/jobs --jq '.jobs[] | select(.name=="build") | .conclusion')" = success
+          test -s android/RC8-DIAGNOSTIC-RELEASE.md
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-RC8-SIGNED-APK
+          repository: sayyedalimrj/FHG
+          run-id: 42354243961
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify and publish as diagnostic preview ONLY
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256
+          test -s dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk
+          TAG=android-v1.0.0-rc.8-diagnostic
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'Immutable preview exists; refusing replacement'; exit 1
+          fi
+          gh release create "$TAG" \
+            dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk \
+            dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256 \
+            --target 6bbcf9cd976db4e901d892188a5823ef574ea42b \
+            --title 'FHG RC8 Diagnostic Preview — VPN crash containment (VPN NOT VERIFIED)' \
+            --notes-file android/RC8-DIAGNOSTIC-RELEASE.md \
+            --prerelease --latest=false

@@ -12,6 +12,8 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.system.OsConstants;
@@ -77,6 +79,20 @@ public final class EmbeddedVpnService extends VpnService
     private InterfaceUpdateListener interfaceListener;
     private Thread startWorker;
     private Thread verifyWorker;
+    // The native Go engine lives in :vpn; keep only status codes in the
+    // separate main/UI process. No credentials are published over IPC.
+    private final Handler beatHandler = new Handler(Looper.getMainLooper());
+    private final Runnable heartbeat = new Runnable() {
+        @Override public void run() {
+            VpnRuntimeState.publish(EmbeddedVpnService.this,
+                state,error,TUN_UP.get(),VERIFIED.get());
+            beatHandler.postDelayed(this,1500);
+        }
+    };
+
+    private void publishState() {
+        VpnRuntimeState.publish(this,state,error,TUN_UP.get(),VERIFIED.get());
+    }
 
     // Persist redacted startup phase across OS/native process termination.
     private void startupPhase(String phase) {
@@ -98,6 +114,7 @@ public final class EmbeddedVpnService extends VpnService
     private void status(String newState, String newError) {
         state = newState;
         error = newError;
+        publishState();
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) nm.notify(NOTIFICATION_ID, notification(newState));
@@ -107,6 +124,7 @@ public final class EmbeddedVpnService extends VpnService
     @Override public void onCreate() {
         super.onCreate();
         cm = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+        beatHandler.post(heartbeat);
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null && Build.VERSION.SDK_INT >= 26)
             nm.createNotificationChannel(new NotificationChannel(
@@ -141,11 +159,12 @@ public final class EmbeddedVpnService extends VpnService
             stopSelf(); return START_NOT_STICKY;
         }
         if (TUN_UP.get() || VERIFIED.get())
-            return START_STICKY; // Never start two native VPN instances.
-        if (!STARTING.compareAndSet(false, true)) return START_STICKY;
+            return START_NOT_STICKY; // Never restart a native crash loop.
+        if (!STARTING.compareAndSet(false, true)) return START_NOT_STICKY;
         VERIFIED.set(false);
         TUN_UP.set(false);
         stopping = false;
+        publishState();
         try {
             startupPhase("FOREGROUND");
             startForeground(NOTIFICATION_ID, notification("STARTING"));
@@ -157,7 +176,7 @@ public final class EmbeddedVpnService extends VpnService
             STARTING.set(false); status("FAILED", "FOREGROUND_SERVICE_ERROR");
             stopSelf(); return START_NOT_STICKY;
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void runEngine() {
@@ -318,6 +337,7 @@ public final class EmbeddedVpnService extends VpnService
         tunFd = builder.establish();
         if (tunFd == null) throw new IllegalStateException("ANDROID_TUN_REJECTED");
         TUN_UP.set(true);
+        publishState();
         return tunFd.getFd();
     }
 
@@ -468,7 +488,11 @@ public final class EmbeddedVpnService extends VpnService
     @Override public SystemProxyStatus getSystemProxyStatus() { return null; }
     @Override public void setSystemProxyEnabled(boolean value) {}
     @Override public void serviceReload() {}
-    @Override public void serviceStop() { stopTunnel(); stopSelf(); }
+    @Override public void serviceStop() {
+        // A Go callback may originate inside native service startup.
+        // Avoid re-entrant closeService() from that same JNI thread.
+        beatHandler.post(() -> { stopTunnel(); stopSelf(); });
+    }
     @Override public void triggerNativeCrash() {}
     @Override public void writeDebugMessage(String message) {}
 
@@ -479,6 +503,7 @@ public final class EmbeddedVpnService extends VpnService
         VERIFIED.set(false);
         TUN_UP.set(false);
         STARTING.set(false);
+        publishState();
         closeDefaultInterfaceMonitor(interfaceListener);
         if (commandServer != null) {
             try { commandServer.closeService(); } catch (Exception ignored) {}
@@ -494,7 +519,11 @@ public final class EmbeddedVpnService extends VpnService
     }
 
     @Override public void onRevoke() { stopTunnel(); stopSelf(); super.onRevoke(); }
-    @Override public void onDestroy() { stopTunnel(); super.onDestroy(); }
+    @Override public void onDestroy() {
+        stopTunnel();
+        beatHandler.removeCallbacks(heartbeat);
+        super.onDestroy();
+    }
 
     @Override public IBinder onBind(Intent intent) { return super.onBind(intent); }
 }

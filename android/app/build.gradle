@@ -7,11 +7,11 @@ android {
     compileSdk 37
 
     defaultConfig {
-        applicationId 'com.fhg.android.secure.rc61'
+        applicationId 'com.fhg.android.secure.rc7'
         minSdk 26
         targetSdk 35
-        versionCode 107
-        versionName '1.0.0-rc.6.1'
+        versionCode 108
+        versionName '1.0.0-rc.7'
 
         // One architecture only: Android phones with 64-bit ARM CPUs.
         // Strips x86, x86_64 and 32-bit ARM native engines (libbox and
@@ -48,7 +48,7 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging true
+            useLegacyPackaging true // compressed 16-KB-compatible ARM64 libs; sideload-size optimized
         }
     }
 }

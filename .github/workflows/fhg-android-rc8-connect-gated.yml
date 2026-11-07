@@ -206,8 +206,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FHG-RC8-INSTALL-PROOF-${{ matrix.api }}
-          path: install-proof/
+          name: FHG-RC8-CONNECT-PROOF-${{ matrix.api }}
+          path: smoke-proof/
           if-no-files-found: warn
 
   publish:

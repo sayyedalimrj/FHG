@@ -52,6 +52,14 @@ rewrite(settings, 'version "2.1.0" apply false',
 wrapper=hd/"android/gradle/wrapper/gradle-wrapper.properties"
 rewrite(wrapper,'gradle-8.7-all.zip','gradle-9.3.1-bin.zip')
 gradle_props=hd/"android/gradle.properties"
+# AGP9 removed the global buildconfig default; request it per-module.
+props_text=gradle_props.read_text(encoding="utf-8")
+assert "android.defaults.buildfeatures.buildconfig=true" in props_text
+gradle_props.write_text(
+    props_text.replace("android.defaults.buildfeatures.buildconfig=true\n",""),
+    encoding="utf-8")
+rewrite(gradle, '    buildFeatures {\n        viewBinding true',
+        '    buildFeatures {\n        buildConfig true\n        viewBinding true')
 with gradle_props.open("a",encoding="utf-8") as gp:
     gp.write("\nandroid.builtInKotlin=false\nandroid.newDsl=false\n")
 

@@ -12,8 +12,8 @@ final class DiagnosticReport {
 
     static String collect(Context context, boolean profilePresent) {
         String result=format(Build.VERSION.SDK_INT, Build.VERSION.RELEASE,
-            EmbeddedVpnService.getState(),
-            safeError(EmbeddedVpnService.getError()),
+            VpnRuntimeState.getState(context),
+            safeError(VpnRuntimeState.getError(context)),
             profilePresent, NetworkGate.vpnActive(context));
         android.content.SharedPreferences prefs=context.getSharedPreferences(
             "fhg-vpn-state",Context.MODE_PRIVATE);

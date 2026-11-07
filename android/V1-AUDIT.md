@@ -144,3 +144,19 @@ IPv6 bridge crash repair and fail-closed browser gate remain unchanged from
 RC5. This build has its own package ID to protect earlier ephemeral-signed
 test installs. Android CI passing is not the same as physical phone UI/VPN
 validation, which remains outstanding.
+
+## RC7 — installer-focused build and verification
+
+- Bundles the last tested native IPv6-zone fix, professional RTL UI, real
+  server selection, GeckoView browser and full fail-closed VPN engine.
+- Uses a fresh package identity for ONE clean side-by-side install. The source
+  cannot safely upgrade ephemeral-signed older packages with different
+  signing keys; this is a signing policy requirement, not a workaround.
+- Keeps compressed JNI libraries to minimize over-the-air APK size on ARM64.
+  The underlying native ELF PT_LOAD sections are 16-KiB aligned.
+- The new release workflow tests signed package validity before Android
+  Package Manager installation, and gates publication on a real emulator
+  install and cold launch. These checks are not a replacement for testing
+  on the user's specific Samsung build.
+- Future update compatibility needs stable GitHub Actions signing secrets;
+  the RC-only random signing-key fallback must NOT be used for production.

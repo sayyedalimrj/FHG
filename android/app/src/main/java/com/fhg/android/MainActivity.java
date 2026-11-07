@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         // phase marker. Never pretend it was a successful VPN connection.
         if(getSharedPreferences("fhg-vpn-state",MODE_PRIVATE)
                 .getBoolean("startup_pending",false)
-                && !EmbeddedVpnService.isStarting()) {
+                && !VpnRuntimeState.isStarting(this)) {
             lastImportError="VPN_PREVIOUS_START_INTERRUPTED";
             update();
         }
@@ -443,10 +443,10 @@ public final class MainActivity extends Activity {
 
     private void update(){
         boolean connected=NetworkGate.vpnActive(this);
-        String state=EmbeddedVpnService.getState();
+        String state=VpnRuntimeState.getState(this);
         boolean reconnecting=state.equals("RECONNECTING");
-        boolean tunnelOpen=EmbeddedVpnService.isTunnelUp();
-        boolean working=importing||EmbeddedVpnService.isStarting()||state.equals("CHECKING");
+        boolean tunnelOpen=VpnRuntimeState.isTunnelUp(this);
+        boolean working=importing||VpnRuntimeState.isStarting(this)||state.equals("CHECKING");
         pending.setVisibility(working?View.VISIBLE:View.GONE);
         status.setText(connected?"اتصال امن برقرار است":
             importing?"در حال دریافت و نصب خودکار پروفایل…":
@@ -482,7 +482,7 @@ public final class MainActivity extends Activity {
         browser.setEnabled(connected);
         browser.setAlpha(connected?1f:.48f);
         String failure=lastImportError;
-        if(failure.isEmpty() && state.equals("FAILED"))failure=EmbeddedVpnService.getError();
+        if(failure.isEmpty() && state.equals("FAILED"))failure=VpnRuntimeState.getError(this);
         if(!failure.isEmpty()){
             inlineError.setText("نیاز به بررسی: "+humanError(failure));
             inlineError.setVisibility(View.VISIBLE);
@@ -506,7 +506,7 @@ public final class MainActivity extends Activity {
                     serverPicker.setAlpha(.55f);
                 }
                 else {
-                    serverPicker.setEnabled(!importing&&!EmbeddedVpnService.isStarting());
+                    serverPicker.setEnabled(!importing&&!VpnRuntimeState.isStarting(this));
                     serverPicker.setAlpha(serverPicker.isEnabled()?1f:.55f);
                     String existing=vault.loadVpnConfig(account.id);
                     String choice=VpnConfig.selectedTag(existing);
@@ -546,6 +546,7 @@ public final class MainActivity extends Activity {
             case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
             case "VPN_CONFIG_REJECTED":return "این پروفایل با موتور sing-box نصب‌شده سازگار نیست؛ فایل یا نوع اشتراک را بررسی کن.";
             case "LIBBOX_START_ERROR":return "موتور VPN در شروع خطا داد. گزارش فنی را بگیر و در صورت تکرار، لاگ adb را بررسی کن.";
+            case "VPN_NATIVE_PROCESS_EXITED":return "موتور داخلی VPN هنگام اتصال متوقف شد. نشست مرورگر مسدود است؛ گزارش مرحله قبلی شروع را بررسی کن.";
             case "VPN_PREVIOUS_START_INTERRUPTED":return "اجرای قبلی در زمان شروع VPN ناتمام مانده؛ احتمال کرش native یا توقف سیستم وجود دارد. گزارش فنی را بگیر.";
             case "PROFILE_MISSING":return "پروفایل VPN برای حساب انتخاب‌شده نصب نشده.";
             case "FOREGROUND_SERVICE_ERROR":return "اندروید اجرای سرویس VPN در پس‌زمینه را رد کرد.";
@@ -589,7 +590,7 @@ public final class MainActivity extends Activity {
 
     private void importSubscription(AccountStore.Account account,boolean connectWhenReady){
         if(importing)return;
-        if(EmbeddedVpnService.isTunnelUp()) disconnect();
+        if(VpnRuntimeState.isTunnelUp(this)) disconnect();
         importing=true;
         final int generation=++importRevision;
         lastImportError="";
@@ -716,8 +717,8 @@ public final class MainActivity extends Activity {
 
     private void applyServer(String accountId,String selected) {
         final int revision=++importRevision;
-        final boolean restart=EmbeddedVpnService.isTunnelUp() ||
-            EmbeddedVpnService.isStarting();
+        final boolean restart=VpnRuntimeState.isTunnelUp(this) ||
+            VpnRuntimeState.isStarting(this);
         importing=true;
         lastImportError="";
         update();
@@ -727,11 +728,11 @@ public final class MainActivity extends Activity {
             String failure="";
             try{
                 if(restart){
-                    for(int i=0;i<30 && (EmbeddedVpnService.isTunnelUp() ||
-                        EmbeddedVpnService.isStarting());i++)Thread.sleep(100);
+                    for(int i=0;i<30 && (VpnRuntimeState.isTunnelUp(this) ||
+                        VpnRuntimeState.isStarting(this));i++)Thread.sleep(100);
                     Thread.sleep(400);
-                    if(EmbeddedVpnService.isTunnelUp() ||
-                        EmbeddedVpnService.isStarting())throw new Exception("VPN_STOP_TIMEOUT");
+                    if(VpnRuntimeState.isTunnelUp(this) ||
+                        VpnRuntimeState.isStarting(this))throw new Exception("VPN_STOP_TIMEOUT");
                 }
                 AccountStore.Account active=vault.selected();
                 if(active==null||!active.id.equals(accountId)||revision!=importRevision)return;
@@ -754,7 +755,7 @@ public final class MainActivity extends Activity {
     }
 
     private void onPower(){
-        if(EmbeddedVpnService.isTunnelUp()||NetworkGate.vpnActive(this))
+        if(VpnRuntimeState.isTunnelUp(this)||NetworkGate.vpnActive(this))
             disconnect();
         else connectVpn();
     }

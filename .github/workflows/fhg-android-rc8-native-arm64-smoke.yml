@@ -1,0 +1,60 @@
+name: FHG RC8 native ARM64 emulator real VPN smoke
+on:
+  push:
+    branches:
+      - android-rc8-native-crash-containment-20261107
+    paths:
+      - '.github/workflows/fhg-android-rc8-native-arm64-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  native-arm64-vpn:
+    runs-on: macos-15
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Apple Silicon host
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -m
+          test "$(uname -m)" = arm64
+          echo "PASS: native ARM64 host, no x86/ARM translation layer"
+      - name: Fetch exact RC8 source-built APKs (no rebuild / resign)
+        uses: actions/download-artifact@v4
+        with:
+          name: FHG-RC8-SIGNED-APK
+          repository: sayyedalimrj/FHG
+          run-id: 42354243961
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify artifacts and ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c dist/FHG-Secure-Android-1.0.0-rc8-ARM64.apk.sha256
+          test -s dist/FHG-RC8-debug-test.apk
+          unzip -Z1 dist/FHG-RC8-debug-test.apk | grep -q '^lib/arm64-v8a/'
+          echo "PASS: exact binaries from 42354243961"
+      - name: Start native ARM64 Android emulator and exercise real VPN
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: arm64-v8a
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          emulator-boot-timeout: 600
+          script: bash .github/scripts/fhg-rc8-connect-smoke.sh 35
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FHG-RC8-NATIVE-ARM64-PROOF
+          path: smoke-proof/
+          if-no-files-found: warn
+          retention-days: 14

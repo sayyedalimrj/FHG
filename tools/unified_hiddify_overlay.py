@@ -42,6 +42,19 @@ rewrite(gradle,'implementation fileTree(dir: \'libs\', include: [\'*.jar\', \'*.
 settings=hd/"android/settings.gradle"
 rewrite(settings,'        mavenCentral()',
     "        mavenCentral()\n        maven { url 'https://maven.mozilla.org/maven2' }")
+# GeoView 159 and fresh AndroidX runtime require API 37 + AGP 9.1.
+# Flutter 3.44 supports AGP 9 with legacy Kotlin/DSL compatibility flags.
+rewrite(gradle, 'compileSdkVersion 36', 'compileSdkVersion 37')
+rewrite(settings, 'version \'8.6.0\' apply false',
+        'version \'9.1.1\' apply false')
+rewrite(settings, 'version "2.1.0" apply false',
+        'version "2.2.10" apply false')
+wrapper=hd/"android/gradle/wrapper/gradle-wrapper.properties"
+rewrite(wrapper,'gradle-8.7-all.zip','gradle-9.3.1-bin.zip')
+gradle_props=hd/"android/gradle.properties"
+with gradle_props.open("a",encoding="utf-8") as gp:
+    gp.write("\\nandroid.builtInKotlin=false\\nandroid.newDsl=false\\n")
+
 # Plugin management repositories do not affect Android app dependencies;
 # GeckoView must be available in the root *allprojects* repository set.
 root_gradle=hd/"android/build.gradle"

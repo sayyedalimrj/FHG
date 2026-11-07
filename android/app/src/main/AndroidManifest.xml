@@ -3,36 +3,18 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <!-- Restrict package visibility to the genuine Hiddify Android package. -->
+    <queries>
+        <package android:name="app.hiddify.com"/>
+    </queries>
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="FHG Secure RC8"
+        android:label="FHG Secure · Hiddify"
         android:theme="@style/FhgSecureTheme"
         android:icon="@drawable/fhg_icon"
         android:supportsRtl="true">
-        <!-- Android VPN services with VpnService.prepare user approval qualify
-             for systemExempted. Lint only recognizes the exact-alarm case and
-             incorrectly demands an unrelated SCHEDULE_EXACT_ALARM permission.
-             Suppress ONLY that warning for this actual VPN service. -->
-        <provider
-            android:name=".VpnRuntimeState"
-            android:authorities="${applicationId}.vpnstate"
-            android:exported="false" />
-        <service
-            android:name=".EmbeddedVpnService"
-            android:process=":vpn"
-            android:exported="false"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="systemExempted"
-            tools:ignore="ForegroundServicePermission">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
         <activity
             android:name=".BrowserActivity"
             android:launchMode="singleTask"

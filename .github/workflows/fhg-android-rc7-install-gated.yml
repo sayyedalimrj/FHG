@@ -5,6 +5,7 @@ on:
       - android-rc7-install-verified-20261107
     paths:
       - 'android/**'
+      - '.github/scripts/fhg-rc7-install-smoke.sh'
       - '.github/workflows/fhg-android-rc7-install-gated.yml'
   workflow_dispatch:
 
@@ -191,28 +192,7 @@ jobs:
           profile: pixel_5
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
-          script: |
-            set -euo pipefail
-            mkdir -p install-proof
-            echo "Android version:" | tee install-proof/report-${{ matrix.api }}.txt
-            adb shell getprop ro.build.version.release | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell getprop ro.product.cpu.abilist | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell getconf PAGE_SIZE | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb devices -l | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb install -r dist/FHG-Secure-Android-1.0.0-rc7-ARM64.apk | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell pm path com.fhg.android.secure.rc7 | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell am start -W -n com.fhg.android.secure.rc7/com.fhg.android.MainActivity | tee -a install-proof/report-${{ matrix.api }}.txt
-            sleep 5
-            adb shell pidof com.fhg.android.secure.rc7 | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell input keyevent 4 || true
-            adb shell screencap -p /sdcard/fhg-ui.png
-            adb pull /sdcard/fhg-ui.png install-proof/ui-${{ matrix.api }}.png
-            adb logcat -d -b crash > install-proof/crash-${{ matrix.api }}.txt
-            if grep -q -E 'Process: com.fhg.android.secure.rc7|>>> com.fhg.android.secure.rc7 <<<' install-proof/crash-${{ matrix.api }}.txt; then
-              echo "FHG crash found"; exit 1
-            fi
-            adb install -r dist/FHG-Secure-Android-1.0.0-rc7-ARM64.apk | tee -a install-proof/report-${{ matrix.api }}.txt
-            adb shell pm path com.fhg.android.secure.rc7 | tee -a install-proof/report-${{ matrix.api }}.txt
+          script: bash .github/scripts/fhg-rc7-install-smoke.sh ${{ matrix.api }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:

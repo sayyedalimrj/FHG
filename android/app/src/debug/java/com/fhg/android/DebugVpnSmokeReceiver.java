@@ -17,6 +17,14 @@ import java.util.UUID;
  */
 public final class DebugVpnSmokeReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context,Intent intent) {
+        if ("com.fhg.android.DEBUG_STATUS".equals(intent.getAction())) {
+            android.os.Bundle state=VpnRuntimeState.read(context);
+            Log.i("FHG-SMOKE","STATE="+state.getString("state","STOPPED")
+                +" UP="+state.getBoolean("up",false)
+                +" VERIFIED="+state.getBoolean("verified",false)
+                +" ERROR="+state.getString("error",""));
+            return;
+        }
         if (!"com.fhg.android.DEBUG_SEED".equals(intent.getAction()))
             return;
         PendingResult pending=goAsync();

@@ -1,0 +1,139 @@
+name: FHG private ONE APK Hiddify-core plus GeckoView
+on:
+  push:
+    branches:
+      - android-unified-hiddify-source-20261107
+    paths:
+      - 'tools/unified_hiddify_overlay.py'
+      - '.github/workflows/fhg-unified-one-apk-ci.yml'
+      - 'android/app/src/main/java/com/fhg/android/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clean build machine
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2.21.0
+        with:
+          flutter-version: '3.38.5'
+          channel: stable
+          cache: true
+      - name: Provision Android SDK and protobuf
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+          sudo apt-get update -qq
+          sudo apt-get install -y protobuf-compiler
+      - name: Acquire pinned official Hiddify source
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v5.5.5 https://github.com/hiddify/hiddify-app.git upstream
+          grep -q '^version: 5.5.5' upstream/pubspec.yaml
+          grep -q 'Hiddify Extended GNU General Public License' upstream/LICENSE.md
+          git -C upstream rev-parse HEAD > upstream-commit.txt
+      - name: Integrate FHG into same application package
+        run: |
+          set -euo pipefail
+          python3 tools/unified_hiddify_overlay.py . upstream
+          grep -q 'applicationId "com.fhg.android.unified"' upstream/android/app/build.gradle
+          test "$(grep -c 'android.intent.category.LAUNCHER' upstream/android/app/src/main/AndroidManifest.xml)" -eq 1
+          grep -q 'android:name=".bg.VPNService"' upstream/android/app/src/main/AndroidManifest.xml
+      - name: Download exact official Hiddify native VPN core
+        run: |
+          set -euo pipefail
+          mkdir -p upstream/android/app/libs
+          curl -fL --retry 4 --retry-delay 4 --max-time 400 \
+            "https://github.com/hiddify/hiddify-core/releases/download/v5.5.5/hiddify-lib-android.tar.gz" \
+            -o /tmp/fhg-core.tar.gz
+          echo 'd428adaf1ebe94046cdf3e32354f5ef84f9c3019432205ccf2a84f10a5a03dd0  /tmp/fhg-core.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/fhg-core.tar.gz -C upstream/android/app/libs
+          find upstream/android/app/libs -type f | head -30
+      - name: Generate Flutter code
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+          dart run slang
+      - name: Compile full unified Hiddify+FHG Android APK
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release --target lib/main_prod.dart \
+            --target-platform android-arm64,android-x64 \
+            --split-per-abi --no-shrink
+          ls -lah build/app/outputs/flutter-apk
+      - name: Verify one Android package and no missing components
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp upstream/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/FHG-Hiddify-UNIFIED-arm64.apk
+          cp upstream/build/app/outputs/flutter-apk/app-x86_64-release.apk dist/FHG-Hiddify-UNIFIED-x64-TEST.apk
+          APK=dist/FHG-Hiddify-UNIFIED-arm64.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" > dist/BUILD-INFO.txt
+          grep -q "package: name='com.fhg.android.unified'" dist/BUILD-INFO.txt
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml > /tmp/unified-manifest.txt
+          grep -q 'com.fhg.android.MainActivity' /tmp/unified-manifest.txt
+          grep -q 'com.fhg.android.BrowserActivity' /tmp/unified-manifest.txt
+          grep -q 'VPNService' /tmp/unified-manifest.txt
+          unzip -l "$APK" | grep -E 'lib/arm64-v8a/.*so'
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+          cp upstream-commit.txt dist/
+          cp upstream/FHG_SOURCE_MODIFICATIONS.md dist/
+          cp upstream/LICENSE.md dist/UPSTREAM-LICENSE.md
+          echo 'PERSONAL TEST: do not redistribute without complying with original Hiddify fork and GPL obligations.' > dist/IMPORTANT.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FHG-HIDDIFY-ONE-APK-PERSONAL-TEST
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
+
+  install:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: FHG-HIDDIFY-ONE-APK-PERSONAL-TEST
+          path: dist
+      - name: Verify artifact
+        run: sha256sum -c dist/SHA256SUMS.txt
+      - name: Prepare KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install same single APK on Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash .github/scripts/fhg-unified-one-apk-smoke.sh

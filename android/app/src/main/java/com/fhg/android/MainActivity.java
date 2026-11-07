@@ -546,7 +546,7 @@ public final class MainActivity extends Activity {
             case "VPN_PERMISSION_REQUIRED":return "باید یک‌بار مجوز VPN اندروید را تأیید کنی.";
             case "VPN_CONFIG_REJECTED":return "این پروفایل با موتور sing-box نصب‌شده سازگار نیست؛ فایل یا نوع اشتراک را بررسی کن.";
             case "LIBBOX_START_ERROR":return "موتور VPN در شروع خطا داد. گزارش فنی را بگیر و در صورت تکرار، لاگ adb را بررسی کن.";
-            case "VPN_NATIVE_PROCESS_EXITED":return "موتور داخلی VPN هنگام اتصال متوقف شد. نشست مرورگر مسدود است؛ گزارش مرحله قبلی شروع را بررسی کن.";
+            case "VPN_NATIVE_PROCESS_EXITED":return "موتور VPN در فرایند جداگانه متوقف شده و مرورگر مسدود مانده است؛ گزارش فنی را بررسی کن.";
             case "VPN_PREVIOUS_START_INTERRUPTED":return "اجرای قبلی در زمان شروع VPN ناتمام مانده؛ احتمال کرش native یا توقف سیستم وجود دارد. گزارش فنی را بگیر.";
             case "PROFILE_MISSING":return "پروفایل VPN برای حساب انتخاب‌شده نصب نشده.";
             case "FOREGROUND_SERVICE_ERROR":return "اندروید اجرای سرویس VPN در پس‌زمینه را رد کرد.";

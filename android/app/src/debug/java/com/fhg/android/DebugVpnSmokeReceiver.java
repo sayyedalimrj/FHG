@@ -17,12 +17,16 @@ import java.util.UUID;
  */
 public final class DebugVpnSmokeReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context,Intent intent) {
-        if (!BuildConfig.DEBUG || !"com.fhg.android.DEBUG_SEED".equals(intent.getAction()))
+        if (!"com.fhg.android.DEBUG_SEED".equals(intent.getAction()))
             return;
         PendingResult pending=goAsync();
         new Thread(() -> {
             try {
                 AccountStore store=new AccountStore(context);
+                if (!store.load().isEmpty()) {
+                    Log.w("FHG-SMOKE","REFUSING_TO_REPLACE_EXISTING_PROFILES");
+                    return;
+                }
                 String id=UUID.randomUUID().toString();
                 ArrayList<AccountStore.Account> existing=new ArrayList<>();
                 existing.add(new AccountStore.Account(id,

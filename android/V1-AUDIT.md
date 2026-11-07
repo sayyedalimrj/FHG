@@ -160,3 +160,32 @@ validation, which remains outstanding.
   on the user's specific Samsung build.
 - Future update compatibility needs stable GitHub Actions signing secrets;
   the RC-only random signing-key fallback must NOT be used for production.
+
+## RC8 — Connect-path native crash containment and smoke verification
+
+**Context:** user continues to experience abrupt application exit at Connect
+despite RC7 install tests and the prior IPv6 zone workaround. No new
+per-device RC7 tombstone has been provided, so the NEW native panic site
+cannot responsibly be claimed as known.
+
+**Architecture:** the Android VpnService runs in a dedicated `:vpn` process,
+so an unrecoverable libbox/Go panic kills that service process instead of
+terminating the GeckoView/UI process. The main app receives only redacted
+state/health flags via a non-exported same-UID ContentProvider; a heartbeat
+expires after 7 seconds, and the browser gate still requires an OS-owned VPN
+network and verified tunneled HTTPS response. Unexpected VPN process loss is
+reported as VPN_NATIVE_PROCESS_EXITED, never as Connected. Native service
+START_NOT_STICKY avoids repeated crash loops. Reentrant Go serviceStop
+callbacks are posted onto the Android main thread before libbox shutdown.
+
+**Integration smoke:** debug builds alone can seed a fake example.invalid
+account and synthetic trojan server in the Keystore-encrypted vault. Android
+CI should request VPN permission on a disposable emulator, actually start
+the native engine, verify that both UI and VPN processes behave, and capture
+the Android crash buffer. No real account, passwords, subscription tokens,
+or private network endpoints are added to code or test logs.
+
+**Limitations:** successful emulator startup does not establish that the
+user's 21-node real subscription connects, or that all Samsung/Android 16
+device-specific crashes have been eliminated. Each success claim must
+identify precisely what was tested.

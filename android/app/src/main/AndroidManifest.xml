@@ -18,8 +18,13 @@
              for systemExempted. Lint only recognizes the exact-alarm case and
              incorrectly demands an unrelated SCHEDULE_EXACT_ALARM permission.
              Suppress ONLY that warning for this actual VPN service. -->
+        <provider
+            android:name=".VpnRuntimeState"
+            android:authorities="${applicationId}.vpnstate"
+            android:exported="false" />
         <service
             android:name=".EmbeddedVpnService"
+            android:process=":vpn"
             android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="systemExempted"

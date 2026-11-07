@@ -159,6 +159,32 @@ assert 'HiddifyBridge.PACKAGE' in ng and 'network.openConnection' in ng
 assert 'NetworkCapabilities.TRANSPORT_VPN' in ng
 assert 'if(Build.VERSION.SDK_INT>=30)' in ng
 
+# In upstream Hiddify, the VPN application excludes *its own package*
+# from the tunnel. After merging GeckoView into that SAME Android package,
+# leaving this behavior would route browser traffic outside the VPN.
+# Keep the existing protect(fd) callback for the Go outbound sockets, but
+# make the browser-containing package eligible for the TUN.
+vpn_service=hd/"android/app/src/main/kotlin/com/hiddify/hiddify/bg/VPNService.kt"
+vpn=vpn_service.read_text(encoding="utf-8")
+guard='''        if (packageName == this.packageName) { 
+            Log.d("VpnService","Cannot include myself: $packageName")
+            return
+        }
+'''
+assert vpn.count(guard)==1,"Hiddify self-inclusion guard changed"
+vpn=vpn.replace(guard,"",1)
+assert vpn.count('addExcludePackage(builder,packageName)')==1
+assert vpn.count('addExcludePackage(builder, packageName)')==1
+vpn=vpn.replace('addExcludePackage(builder,packageName)',
+                '// FHG: do not exclude VPN-owner package; it also contains GeckoView.')
+vpn=vpn.replace('addExcludePackage(builder, packageName)',
+                '// FHG: keep browser within TUN; native engine uses protect(fd).')
+assert vpn.count('//                    addIncludePackage(builder,packageName)')==2
+vpn=vpn.replace('//                    addIncludePackage(builder,packageName)',
+                'addIncludePackage(builder, packageName)')
+vpn_service.write_text(vpn,encoding="utf-8")
+print("FHG: VPN-owner UID included in tunnel so embedded GeckoView cannot bypass it.")
+
 # Attribution; no removal of upstream LICENSE.md or source history.
 (hd/"FHG_SOURCE_MODIFICATIONS.md").write_text(
 """# FHG combined browser + Hiddify v5.5.5 (private test build)

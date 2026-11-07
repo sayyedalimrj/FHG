@@ -1,0 +1,52 @@
+name: FHG RC5 vs RC6.1 actual APK install forensics
+on:
+  push:
+    branches:
+      - android-install-forensics-20261107
+    paths:
+      - '.github/workflows/android-install-forensics.yml'
+      - '.github/scripts/android-install-forensics.sh'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  install-and-launch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm || true
+      - name: Fetch exact published RC5 and RC6.1 APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/fhg-apks install-forensics
+          curl -fL --retry 4 --max-time 300             'https://github.com/sayyedalimrj/FHG/releases/download/android-v1.0.0-rc.5/FHG-Secure-Android-1.0.0-rc5-ARM64.apk'             -o /tmp/fhg-apks/rc5.apk
+          curl -fL --retry 4 --max-time 300             'https://github.com/sayyedalimrj/FHG/releases/download/android-v1.0.0-rc.6.1/FHG-Secure-Android-1.0.0-rc6.1-ARM64.apk'             -o /tmp/fhg-apks/rc61.apk
+          echo '5a39e63f7fef8b0f72b2f8082c1d34c485cd3db5ef2fc6eecce73ce3b7d583ed  /tmp/fhg-apks/rc5.apk' | sha256sum -c -
+          echo '97dd600c52f0a52148e1e9f83b346fc544fa6e1ed0bbcf24cecea7cd659eb6aa  /tmp/fhg-apks/rc61.apk' | sha256sum -c -
+          sha256sum /tmp/fhg-apks/*.apk > install-forensics/apk-sha256.txt
+          unzip -t /tmp/fhg-apks/rc5.apk | tail -2
+          unzip -t /tmp/fhg-apks/rc61.apk | tail -2
+      - name: Install both APKs on clean Android 15 emulator (ARM translation)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: bash .github/scripts/android-install-forensics.sh
+      - name: Upload complete install evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FHG-RC5-vs-RC6.1-install-evidence
+          path: install-forensics/
+          if-no-files-found: warn

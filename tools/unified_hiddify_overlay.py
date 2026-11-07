@@ -42,6 +42,11 @@ rewrite(gradle,'implementation fileTree(dir: \'libs\', include: [\'*.jar\', \'*.
 settings=hd/"android/settings.gradle"
 rewrite(settings,'        mavenCentral()',
     "        mavenCentral()\n        maven { url 'https://maven.mozilla.org/maven2' }")
+# Plugin management repositories do not affect Android app dependencies;
+# GeckoView must be available in the root *allprojects* repository set.
+root_gradle=hd/"android/build.gradle"
+rewrite(root_gradle, "        mavenCentral()\n        google()",
+    "        mavenCentral()\n        google()\n        maven { url 'https://maven.mozilla.org/maven2/' }")
 
 manifest=hd/"android/app/src/main/AndroidManifest.xml"
 rewrite(manifest,'''    <uses-permission android:name="android.permission.INTERNET" />''',

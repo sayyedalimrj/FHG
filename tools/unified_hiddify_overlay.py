@@ -18,6 +18,30 @@ assert (hd/"android/app/src/main/AndroidManifest.xml").is_file()
 assert (hd/"pubspec.yaml").is_file()
 assert "Hiddify Extended GNU" in (hd/"LICENSE.md").read_text()
 
+# Flutter 3.44 marks IconData final; upstream v5.5.5 dependencies
+# still subclassed IconData. Upgrade only those icon libraries and
+# migrate the upstream FontAwesome widget usages to FaIcon.
+# Keep Flutter 3.44 for AGP9 legacy-Kotlin compatibility.
+pubspec = hd/"pubspec.yaml"
+rewrite_target = pubspec.read_text(encoding="utf-8")
+for before, after in [
+    ("  font_awesome_flutter: ^10.7.0", "  font_awesome_flutter: ^11.0.0"),
+    ("  simple_icons: ^10.1.3", "  simple_icons: ^16.23.0"),
+]:
+    assert rewrite_target.count(before) == 1, f"Expected exact upstream dependency: {before}"
+    rewrite_target = rewrite_target.replace(before, after, 1)
+pubspec.write_text(rewrite_target, encoding="utf-8")
+
+json_editor = hd/"lib/features/profile/details/json_editor.dart"
+icon_source = json_editor.read_text(encoding="utf-8")
+for icon_name in ("caretDown", "caretRight"):
+    before = f"Icon(FontAwesomeIcons.{icon_name}, size: 14)"
+    after = f"FaIcon(FontAwesomeIcons.{icon_name}, size: 14)"
+    assert icon_source.count(before) == 1, f"Expected FontAwesome widget: {before}"
+    icon_source = icon_source.replace(before, after, 1)
+json_editor.write_text(icon_source, encoding="utf-8")
+print("FHG: migrated Flutter 3.44 IconData-final incompatible dependencies.")
+
 src=fg/"android/app/src/main/java/com/fhg/android"
 dest=hd/"android/app/src/main/java/com/fhg/android"
 dest.mkdir(parents=True,exist_ok=True)

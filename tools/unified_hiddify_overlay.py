@@ -42,6 +42,20 @@ for icon_name in ("caretDown", "caretRight"):
 json_editor.write_text(icon_source, encoding="utf-8")
 print("FHG: migrated Flutter 3.44 IconData-final incompatible dependencies.")
 
+# New simple_icons removed several historical brand glyphs for upstream
+# provider labels; substitute stable Material glyphs (already imported).
+ip_widget = hd/"lib/features/proxy/active/ip_widget.dart"
+ip_text = ip_widget.read_text(encoding="utf-8")
+for before, after in [
+    ("OrgIconData(SimpleIcons.microsoftazure, SimpleIconColors.microsoftazure)", "OrgIconData(Icons.cloud_outlined, Colors.blue)"),
+    ("OrgIconData(SimpleIcons.amazonaws, SimpleIconColors.amazonaws)", "OrgIconData(Icons.cloud_outlined, Colors.orange)"),
+    ("OrgIconData(SimpleIcons.oracle, SimpleIconColors.oracle)", "OrgIconData(Icons.cloud_outlined, Colors.red)"),
+]:
+    assert ip_text.count(before)==1, f"Missing upstream IP icon anchor: {before}"
+    ip_text = ip_text.replace(before,after,1)
+ip_widget.write_text(ip_text,encoding="utf-8")
+print("FHG: removed unavailable v16 simple_icons glyph names in IP widget.")
+
 src=fg/"android/app/src/main/java/com/fhg/android"
 dest=hd/"android/app/src/main/java/com/fhg/android"
 dest.mkdir(parents=True,exist_ok=True)

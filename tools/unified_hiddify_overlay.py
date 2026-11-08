@@ -83,6 +83,7 @@ rewrite(settings,'        mavenCentral()',
 # GeoView 159 and fresh AndroidX runtime require API 37 + AGP 9.1.
 # Flutter 3.44 supports AGP 9 with legacy Kotlin/DSL compatibility flags.
 rewrite(gradle, 'compileSdkVersion 36', 'compileSdkVersion 37')
+rewrite(gradle, 'minSdkVersion flutter.minSdkVersion', 'minSdkVersion 26')
 rewrite(settings, 'version \'8.6.0\' apply false',
         'version \'9.1.1\' apply false')
 rewrite(settings, 'version "2.1.0" apply false',

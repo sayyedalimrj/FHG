@@ -74,6 +74,25 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
           dart run slang
+      - name: Align pinned Sentry Kotlin language level with Kotlin 2.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, pathlib
+          files=glob.glob(str(pathlib.Path.home()/'.pub-cache/hosted/pub.dev/sentry_flutter-8.*/android/build.gradle'))
+          if len(files)!=1:
+              raise SystemExit(f'Expected exactly one Sentry 8.x Android Gradle script, got: {files!r}')
+          p=pathlib.Path(files[0]); body=p.read_text(encoding='utf-8')
+          matches=0
+          for old in ('languageVersion = "1.6"', "languageVersion = '1.6'"):
+              matches+=body.count(old)
+              body=body.replace(old,old.replace('1.6','1.8'))
+          if matches!=1:
+              raise SystemExit(f'Unexpected Sentry Kotlin languageVersion anchor in {p}: {matches}')
+          p.write_text(body,encoding='utf-8')
+          print(f'FHG: upgraded Sentry Kotlin language level to 1.8 for compiler 2.2: {p}')
+          PY
       - name: Compile full unified Hiddify+FHG Android APK
         working-directory: upstream
         shell: bash

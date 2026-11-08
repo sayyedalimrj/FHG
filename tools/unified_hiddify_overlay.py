@@ -100,7 +100,7 @@ gradle_props.write_text(
 rewrite(gradle, '    buildFeatures {\n        viewBinding true',
         '    buildFeatures {\n        buildConfig true\n        viewBinding true')
 with gradle_props.open("a",encoding="utf-8") as gp:
-    gp.write("\nandroid.builtInKotlin=false\nandroid.newDsl=false\n")
+    gp.write("\nandroid.builtInKotlin=false\nandroid.newDsl=false\nandroid.nonFinalResIds=true\n")
 
 # Plugin management repositories do not affect Android app dependencies;
 # GeckoView must be available in the root *allprojects* repository set.

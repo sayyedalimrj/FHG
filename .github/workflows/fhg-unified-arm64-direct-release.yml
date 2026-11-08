@@ -1,0 +1,118 @@
+name: FHG ONE APK direct ARM64 GitHub release from verified build
+
+on:
+  push:
+    branches:
+      - android-unified-hiddify-source-20261107
+    paths:
+      - '.github/workflows/fhg-unified-arm64-direct-release.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: fhg-unified-arm64-direct-release
+  cancel-in-progress: false
+
+jobs:
+  promote-existing-verified-apk:
+    if: github.repository == 'sayyedalimrj/FHG' && github.ref == 'refs/heads/android-unified-hiddify-source-20261107'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate successful source build before any release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_ID=42460447157
+          EXPECTED_SHA=d23f932484b23359406185177e89bdc715db4b37
+          API="repos/sayyedalimrj/FHG/actions/runs/$RUN_ID"
+          test "$(gh api "$API" --jq '.name')" = 'FHG private ONE APK Hiddify-core plus GeckoView'
+          test "$(gh api "$API" --jq '.head_branch')" = 'android-unified-hiddify-source-20261107'
+          test "$(gh api "$API" --jq '.head_sha')" = "$EXPECTED_SHA"
+          test "$(gh api "$API" --jq '.conclusion')" = 'success'
+          gh api "$API/jobs?per_page=100" --jq '.jobs[] | [.name,.conclusion] | @tsv' > jobs.tsv
+          grep -Fx "$(printf 'build\tsuccess')" jobs.tsv
+          grep -Fx "$(printf 'install\tsuccess')" jobs.tsv
+          echo 'PASS: exact original CI build and x64 emulator install passed'
+
+      - name: Download original verified build artifact, not a new rebuild
+        uses: actions/download-artifact@v4
+        with:
+          repository: sayyedalimrj/FHG
+          run-id: 42460447157
+          name: FHG-HIDDIFY-ONE-APK-PERSONAL-TEST
+          path: dist
+          github-token: ${{ github.token }}
+
+      - name: Verify exact ARM64 APK, native engines, hashes, and source notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s dist/FHG-Hiddify-UNIFIED-arm64.apk
+          test -s dist/SHA256SUMS.txt
+          test -s dist/UPSTREAM-LICENSE.md
+          test -s dist/FHG_SOURCE_MODIFICATIONS.md
+          test -s dist/BUILD-INFO.txt
+          sha256sum -c dist/SHA256SUMS.txt
+          echo '6259237aa6e72b6969a4ff0658247b5b2a39570b61d040163ffe461dfea70c5a  dist/FHG-Hiddify-UNIFIED-arm64.apk' | sha256sum -c -
+          APK=dist/FHG-Hiddify-UNIFIED-arm64.apk
+          BYTES=$(stat -c '%s' "$APK")
+          test "$BYTES" -eq 156479920
+          unzip -t "$APK" | tail -2
+          unzip -Z1 "$APK" | grep -Fx 'lib/arm64-v8a/libhiddify-core.so'
+          unzip -Z1 "$APK" | grep -Fx 'lib/arm64-v8a/libxul.so'
+          if unzip -Z1 "$APK" | grep -E '^lib/(armeabi-v7a|x86|x86_64)/'; then
+            echo 'FAIL: additional ABI found in ARM64 APK' >&2
+            exit 1
+          fi
+          grep -Fq "package: name='com.fhg.android.unified'" dist/BUILD-INFO.txt
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER=$(find "$SDK/build-tools" -maxdepth 2 -type f -name apksigner | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            echo 'apksigner unavailable: refusing unverified distribution' >&2
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose "$APK"
+          cp dist/SHA256SUMS.txt dist/SOURCE-SHA256SUMS.txt
+          echo "PASS: exact single ARM64 APK $BYTES bytes; Hiddify-core and GeckoView are present"
+
+      - name: Publish direct APK to a separate test prerelease without changing main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='android-unified-fhg-arm64-personal-test-20261108.1'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists; refusing to overwrite" >&2
+            exit 1
+          fi
+          cat > /tmp/fhg-release-notes.md <<'NOTES'
+          # FHG unified Android ARM64 personal test APK
+
+          **Direct download:** FHG-Hiddify-UNIFIED-arm64.apk (156,479,920 bytes), one Android package: com.fhg.android.unified.
+          **Exactly reuses build from:** https://github.com/sayyedalimrj/FHG/actions/runs/42460447157
+          **Original build commit:** d23f932484b23359406185177e89bdc715db4b37.
+          **Not two separate apps.** This Android package includes the upstream Hiddify v5.5.5 native VPN core and GeckoView browser.
+          **Verification:** SHA-256 checked; Android APK signature checked; original CI built both ARM64 and emulator x64 packages, and installed the latter on an Android 15 emulator.
+          **Not verified:** real VPN connectivity, real Samsung/ARM64 installation, subscription imports or auth/browser behavior on a physical phone. This is not a production VPN release.
+
+          **Source & licensing:** Hiddify source https://github.com/hiddify/hiddify-app/tree/v5.5.5 and original https://github.com/hiddify/hiddify-app.
+          License and source-change notes are attached. Upstream terms require an official Hiddify fork with open derivative sources for redistribution; this personal test must not be redistributed without satisfying those conditions.
+          NOTES
+          gh release create "$TAG" \
+            dist/FHG-Hiddify-UNIFIED-arm64.apk \
+            dist/UPSTREAM-LICENSE.md \
+            dist/FHG_SOURCE_MODIFICATIONS.md \
+            dist/BUILD-INFO.txt \
+            dist/SOURCE-SHA256SUMS.txt \
+            --target d23f932484b23359406185177e89bdc715db4b37 \
+            --title 'FHG Unified ARM64 Personal Test — One Hiddify-core + GeckoView APK' \
+            --notes-file /tmp/fhg-release-notes.md \
+            --prerelease --latest=false
+          echo 'https://github.com/sayyedalimrj/FHG/releases/download/android-unified-fhg-arm64-personal-test-20261108.1/FHG-Hiddify-UNIFIED-arm64.apk' >> "$GITHUB_STEP_SUMMARY"

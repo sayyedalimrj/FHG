@@ -74,12 +74,20 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
           dart run slang
-      - name: Align pinned Sentry Kotlin language level with Kotlin 2.2
+      - name: Align Kotlin compiler and Sentry with resolved 2.4 stdlib
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import glob, pathlib
+          # Kotlin 2.2 cannot parse kotlin-stdlib 2.4.20 metadata (2.4.0).
+          # Kotlin 2.4.21 is compatible with AGP 9.1.1 and Gradle 9.3.1.
+          settings=pathlib.Path('upstream/android/settings.gradle')
+          original=settings.read_text(encoding='utf-8')
+          before='version "2.2.10" apply false'
+          assert original.count(before)==1, 'Unexpected upstream Kotlin plugin version'
+          settings.write_text(original.replace(before,'version "2.4.21" apply false',1),encoding='utf-8')
+          print('FHG: Kotlin compiler set to 2.4.21 to match kotlin-stdlib metadata 2.4')
           files=glob.glob(str(pathlib.Path.home()/'.pub-cache/hosted/pub.dev/sentry_flutter-8.*/android/build.gradle'))
           if len(files)!=1:
               raise SystemExit(f'Expected exactly one Sentry 8.x Android Gradle script, got: {files!r}')
@@ -87,11 +95,11 @@ jobs:
           matches=0
           for old in ('languageVersion = "1.6"', "languageVersion = '1.6'"):
               matches+=body.count(old)
-              body=body.replace(old,old.replace('1.6','1.8'))
+              body=body.replace(old,old.replace('1.6','2.0'))
           if matches!=1:
               raise SystemExit(f'Unexpected Sentry Kotlin languageVersion anchor in {p}: {matches}')
           p.write_text(body,encoding='utf-8')
-          print(f'FHG: upgraded Sentry Kotlin language level to 1.8 for compiler 2.2: {p}')
+          print(f'FHG: upgraded Sentry Kotlin language level to 2.0 for compiler 2.4: {p}')
           # Old Flutter plugins use fixed compileSdk 31/33/34 even though
           # current AndroidX requires 36+. Raise compile-only SDK, NOT
           # minSdk, targetSdk, plugin runtime behavior, or app permissions.

@@ -92,6 +92,20 @@ jobs:
               raise SystemExit(f'Unexpected Sentry Kotlin languageVersion anchor in {p}: {matches}')
           p.write_text(body,encoding='utf-8')
           print(f'FHG: upgraded Sentry Kotlin language level to 1.8 for compiler 2.2: {p}')
+          # dynamic_color 1.7.0 is compiled against API 31; GeckoView
+          # requires modern AndroidX libraries with min compileSdk >= 34.
+          # Raise compile-only API for this legacy plugin without changing
+          # its runtime minSdk, Dart API, or material color behavior.
+          import re
+          dc=glob.glob(str(pathlib.Path.home()/'.pub-cache/hosted/pub.dev/dynamic_color-1.7.0/android/build.gradle'))
+          if len(dc)!=1:
+              raise SystemExit(f'Expected pinned dynamic_color 1.7.0 build file, got {dc!r}')
+          pdc=pathlib.Path(dc[0]); source=pdc.read_text(encoding='utf-8')
+          patched,n=re.subn(r'(?m)^(\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?)31\\b',r'\\g<1>37',source)
+          if n!=1:
+              raise SystemExit(f'Expected compileSdk 31 exactly once in {pdc}, got {n}: '+str([x for x in source.splitlines() if 'compileSdk' in x]))
+          pdc.write_text(patched,encoding='utf-8')
+          print(f'FHG: aligned dynamic_color compileSdk 31 -> 37: {pdc}')
           PY
       - name: Compile full unified Hiddify+FHG Android APK
         working-directory: upstream

@@ -92,20 +92,29 @@ jobs:
               raise SystemExit(f'Unexpected Sentry Kotlin languageVersion anchor in {p}: {matches}')
           p.write_text(body,encoding='utf-8')
           print(f'FHG: upgraded Sentry Kotlin language level to 1.8 for compiler 2.2: {p}')
-          # dynamic_color 1.7.0 is compiled against API 31; GeckoView
-          # requires modern AndroidX libraries with min compileSdk >= 34.
-          # Raise compile-only API for this legacy plugin without changing
-          # its runtime minSdk, Dart API, or material color behavior.
+          # Old Flutter plugins use fixed compileSdk 31/33/34 even though
+          # current AndroidX requires 36+. Raise compile-only SDK, NOT
+          # minSdk, targetSdk, plugin runtime behavior, or app permissions.
           import re
-          dc=glob.glob(str(pathlib.Path.home()/'.pub-cache/hosted/pub.dev/dynamic_color-1.7.0/android/build.gradle'))
-          if len(dc)!=1:
-              raise SystemExit(f'Expected pinned dynamic_color 1.7.0 build file, got {dc!r}')
-          pdc=pathlib.Path(dc[0]); source=pdc.read_text(encoding='utf-8')
-          patched,n=re.subn(r'(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)31\b',r'\g<1>37',source)
-          if n!=1:
-              raise SystemExit(f'Expected compileSdk 31 exactly once in {pdc}, got {n}: '+str([x for x in source.splitlines() if 'compileSdk' in x]))
-          pdc.write_text(patched,encoding='utf-8')
-          print(f'FHG: aligned dynamic_color compileSdk 31 -> 37: {pdc}')
+          scripts=sorted(pathlib.Path.home().glob('.pub-cache/hosted/pub.dev/*/android/build.gradle*'))
+          patched_names=set()
+          for plugin_script in scripts:
+              if not plugin_script.is_file():
+                  continue
+              old_text=plugin_script.read_text(encoding='utf-8')
+              pattern=r'(?m)^(\s*compileSdk(?:Version)?\s*(?:=\s*)?)(\d+)\b'
+              def sdk_repl(match):
+                  return match.group(1)+'37' if int(match.group(2))<37 else match.group(0)
+              new_text=re.sub(pattern,sdk_repl,old_text)
+              if new_text!=old_text:
+                  plugin_script.write_text(new_text,encoding='utf-8')
+                  patched_names.add(plugin_script.parent.parent.name)
+          required={'dynamic_color-1.7.0','flutter_displaymode-0.6.0','file_picker-8.3.7'}
+          if not required.issubset(patched_names):
+              raise SystemExit('Expected old compile SDK fixes were missing: '+
+                  str(sorted(required-patched_names)))
+          print('FHG: aligned old Flutter plugin compileSdk levels to API 37: '+
+                ', '.join(sorted(patched_names)))
           PY
       - name: Compile full unified Hiddify+FHG Android APK
         working-directory: upstream

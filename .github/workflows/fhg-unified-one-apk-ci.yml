@@ -170,14 +170,11 @@ jobs:
             }
           }
           gradle.beforeSettings { settings ->
+            // Flutter's included build uses settings-level repository policy.
+            // Never inject project repositories: Gradle 9 rejects that.
             kotlinMirrors.eachWithIndex { url, n ->
               addKotlinMirror(settings.pluginManagement.repositories, url, n)
-            }
-          }
-          gradle.beforeProject { project ->
-            kotlinMirrors.eachWithIndex { url, n ->
-              addKotlinMirror(project.repositories, url, n)
-              addKotlinMirror(project.buildscript.repositories, url, n)
+              addKotlinMirror(settings.dependencyResolutionManagement.repositories, url, n)
             }
           }
           GRADLE

@@ -318,6 +318,10 @@ d=d.replace(anchor,anchor+'''
             debugPrint('FHG_CONNECT: no active profile; select a server first');
             return;
           }
+          // The notifier is a stream; if it is still loading, mayConnect()
+          // silently does nothing. Await the first real status before tap.
+          await ref.read(connectionNotifierProvider.future);
+          if (disposed) return;
           debugPrint('FHG_CONNECT: requesting native VPN start through original Hiddify notifier');
           await ref.read(connectionNotifierProvider.notifier).mayConnect();
         } catch (error) {

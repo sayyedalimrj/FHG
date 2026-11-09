@@ -76,6 +76,10 @@ jobs:
             rm -f /tmp/fhg-core.tar.gz
             gh release download v5.5.5 -R hiddify/hiddify-core \
               -p 'hiddify-lib-android.tar.gz' -D /tmp --clobber
+            # gh preserves the ORIGINAL asset filename; normalise before
+            # verifying the unchanged pinned sha256.
+            test -s /tmp/hiddify-lib-android.tar.gz
+            mv /tmp/hiddify-lib-android.tar.gz /tmp/fhg-core.tar.gz
           fi
           echo 'd428adaf1ebe94046cdf3e32354f5ef84f9c3019432205ccf2a84f10a5a03dd0  /tmp/fhg-core.tar.gz' | sha256sum -c -
           tar -xzf /tmp/fhg-core.tar.gz -C upstream/android/app/libs

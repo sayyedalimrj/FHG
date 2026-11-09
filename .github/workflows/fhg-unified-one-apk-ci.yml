@@ -149,6 +149,52 @@ jobs:
               print('FHG: aligned old Flutter plugin compileSdk levels to API 37: '+
                     ', '.join(sorted(patched_names)))
           PY
+      - name: Configure Maven Central mirror fallbacks for Kotlin 504
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This init script applies to the Flutter included Gradle build too.
+          # Mirror only JetBrains Kotlin artifacts; don't change versions.
+          mkdir -p "$HOME/.gradle/init.d"
+          cat > "$HOME/.gradle/init.d/00-fhg-kotlin-mirrors.gradle" <<'GRADLE'
+          def kotlinMirrors = [
+            'https://maven-central.storage-download.googleapis.com/maven2/',
+            'https://maven-central-eu.storage-download.googleapis.com/maven2/',
+            'https://maven.aliyun.com/repository/central/'
+          ]
+          def addKotlinMirror = { repos, uriString, n ->
+            repos.maven {
+              name = 'FHGKotlinMirror' + n
+              url = uri(uriString)
+              content { includeGroup('org.jetbrains.kotlin') }
+            }
+          }
+          gradle.beforeSettings { settings ->
+            kotlinMirrors.eachWithIndex { url, n ->
+              addKotlinMirror(settings.pluginManagement.repositories, url, n)
+            }
+          }
+          gradle.beforeProject { project ->
+            kotlinMirrors.eachWithIndex { url, n ->
+              addKotlinMirror(project.repositories, url, n)
+              addKotlinMirror(project.buildscript.repositories, url, n)
+            }
+          }
+          GRADLE
+          # Reachability probes only fetch the small POM, not a huge binary.
+          POM=org/jetbrains/kotlin/kotlin-compiler-embeddable/2.2.21/kotlin-compiler-embeddable-2.2.21.pom
+          ok=0
+          for host in "https://maven-central.storage-download.googleapis.com/maven2" "https://maven-central-eu.storage-download.googleapis.com/maven2" "https://maven.aliyun.com/repository/central"; do
+            if curl -fsSL --retry 1 --connect-timeout 6 --max-time 16 "$host/$POM" -o /tmp/fhg-kotlin-2.2.21.pom; then
+              grep -q '<artifactId>kotlin-compiler-embeddable</artifactId>' /tmp/fhg-kotlin-2.2.21.pom
+              echo "Kotlin mirror reachable: $host"
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" -eq 0 ]; then
+            echo "Kotlin mirrors unavailable from runner; Gradle will still try existing repositories" >&2
+          fi
       - name: Compile full unified Hiddify+FHG Android APK
         working-directory: upstream
         shell: bash

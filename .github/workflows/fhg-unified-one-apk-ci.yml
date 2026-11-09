@@ -173,9 +173,13 @@ jobs:
             // Flutter's included build uses settings-level repository policy.
             // Never inject project repositories: Gradle 9 rejects that.
             kotlinMirrors.eachWithIndex { url, n ->
-              addKotlinMirror(settings.pluginManagement.repositories, url, n)
               addKotlinMirror(settings.dependencyResolutionManagement.repositories, url, n)
             }
+            // Keep the normal Google and Maven repositories for everything
+            // that is not a JetBrains Kotlin dependency. Do NOT inject into
+            // pluginManagement: that suppresses Gradle's default Plugin Portal.
+            settings.dependencyResolutionManagement.repositories.google()
+            settings.dependencyResolutionManagement.repositories.mavenCentral()
           }
           GRADLE
           # Reachability probes only fetch the small POM, not a huge binary.

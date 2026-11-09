@@ -29,15 +29,14 @@ import java.util.List;
 /**
  * FHG's secure ChatGPT account and browser workspace.
  *
- * VPN routing is owned exclusively by the unmodified, officially signed
- * Hiddify app. No native VPN engine runs in this process; this is not a
- * repackaged derivative of Hiddify and does not claim to be one.
- * Confirmation of subscription import happens inside Hiddify.
+ * This is a single combined Android package with the original Hiddify
+ * native core and a GeckoView account workspace. Connection status is not
+ * inferred from subscription import; it must pass NetworkGate verification.
  */
 public final class MainActivity extends Activity {
     private static final int PICK_ACCOUNT=42;
-    private static final int BG=0xff0b1020, PANEL=0xff151e31;
-    private static final int ACCENT=0xff55e1c8, INK=0xfff3f7ff;
+    private static final int BG=0xff0a1220, PANEL=0xff142237;
+    private static final int ACCENT=0xff5fe7cc, INK=0xfff3f7ff;
     private static final int MUTED=0xffa1b0c8, WARNING=0xffffc383;
 
     private final Handler ui=new Handler(Looper.getMainLooper());
@@ -150,34 +149,34 @@ public final class MainActivity extends Activity {
         scroll.addView(content);
         setContentView(scroll);
 
-        TextView title=label("FHG  /  Secure Workspace",24,INK,true);
+        TextView title=label("FHG  •  Secure",26,INK,true);
         title.setTextDirection(View.TEXT_DIRECTION_LTR);
         add(content,title,52,4);
-        TextView sub=label("VPN با موتور رسمی Hiddify  •  مرورگر اختصاصی FHG",12,MUTED,false);
+        TextView sub=label("یک برنامه  •  اتصال امن، سرورها و مرورگر",13,MUTED,false);
         add(content,sub,-2,0);
 
         LinearLayout hero=card();
-        add(hero,label("وضعیت اتصال محافظت‌شده",13,MUTED,true),-2,0);
+        add(hero,label("اتصال خصوصی",14,MUTED,true),-2,0);
         stateText=label("در حال بررسی…",22,INK,true);
         add(hero,stateText,-2,12);
-        detail=label("اتصال صرفاً توسط برنامه رسمی Hiddify انجام می‌شود.",13,MUTED,false);
+        detail=label("ابتدا سرور را انتخاب کن و سپس اتصال VPN را شروع کن.",13,MUTED,false);
         add(hero,detail,-2,7);
-        vpnButton=button("باز کردن Hiddify و اتصال",ACCENT,this::openHiddify);
+        vpnButton=button("اتصال VPN",ACCENT,this::openHiddify);
         add(hero,vpnButton,56,18);
-        openBrowser=button("ورود به مرورگر ChatGPT",0xff2660a3,this::launchBrowser);
+        openBrowser=button("باز کردن مرورگر امن",0xff27659f,this::launchBrowser);
         add(hero,openBrowser,56,10);
         add(content,hero,-2,22);
 
         LinearLayout serverCard=card();
-        add(serverCard,label("سرورها و اشتراک",18,INK,true),-2,0);
-        server=label("انتخاب سرور در خود Hiddify",13,MUTED,false);
+        add(serverCard,label("مدیریت سرورها",18,INK,true),-2,0);
+        server=label("اشتراک را وارد کن، سرور سالم را انتخاب کن و به VPN متصل شو.",13,MUTED,false);
         add(serverCard,server,-2,9);
-        add(serverCard,button("افزودن اشتراک در Hiddify",0xff263950,this::sendSubscription),54,15);
-        add(serverCard,button("انتخاب لوکیشن / تست سرعت",0xff263950,this::openHiddify),54,9);
+        add(serverCard,button("واردکردن اشتراک",0xff263950,this::sendSubscription),52,13);
+        add(serverCard,button("انتخاب سرور / تست تأخیر",0xff263950,this::openVpnManager),52,9);
         add(content,serverCard,-2,14);
 
         LinearLayout accounts=card();
-        add(accounts,label("حساب‌ها و ورود دومرحله‌ای",18,INK,true),-2,0);
+        add(accounts,label("حساب ChatGPT و 2FA",18,INK,true),-2,0);
         accountPicker=new Spinner(this);
         accountPicker.setMinimumHeight(dp(53));
         accountPicker.setBackground(bg(0xff1d2b43,13,0xff2b3d55));
@@ -211,7 +210,7 @@ public final class MainActivity extends Activity {
         add(content,notice,-2,15);
         add(content,button("تنظیمات VPN اندروید",0xff202e46,this::openVpnSettings),53,17);
         add(content,button("گزارش فنی غیرمحرمانه",0xff202e46,this::shareReport),53,8);
-        add(content,label("FHG · Hiddify official backend · beta",11,MUTED,false),48,18);
+        add(content,label("FHG Unified • Hiddify Core + GeckoView • آزمایشی",11,MUTED,false),48,14);
     }
 
     private void reloadAccounts(){
@@ -239,21 +238,21 @@ public final class MainActivity extends Activity {
         if(trusted) {
             stateText.setText("VPN فعال و مسیر HTTPS تأیید شد");
             stateText.setTextColor(ACCENT);
-            detail.setText("مرورگر مجاز است؛ ارتباط به شبکه VPN سیستم متصل است.");
+            detail.setText("مسیر HTTPS از شبکه VPN تأیید شده؛ مرورگر اکنون مجاز است.");
         }else if(!installed) {
             stateText.setText("هیدیفای نصب نیست");
             stateText.setTextColor(WARNING);
-            detail.setText("برای اتصال، نسخه رسمی Hiddify را نصب کن.");
+            detail.setText("صفحه مدیریت VPN داخل برنامه در دسترس نیست.");
         }else if("VPN_PROBE_FAILED".equals(current)) {
             stateText.setText("VPN پیدا شد، اما اتصال تأیید نشد");
             stateText.setTextColor(WARNING);
-            detail.setText("در Hiddify سرور دیگری انتخاب کن یا اینترنت را بررسی کن.");
+            detail.setText("VPN شناسایی شد، ولی آزمون HTTPS موفق نبود. سرور دیگری انتخاب کن.");
         }else{
-            stateText.setText("در انتظار اتصال Hiddify");
+            stateText.setText("قطع / آماده اتصال");
             stateText.setTextColor(INK);
-            detail.setText("هیدیفای را باز کن، سرور دلخواه را انتخاب و VPN را وصل کن.");
+            detail.setText("روی «اتصال VPN» بزن. اگر سروری انتخاب نشده، ابتدا وارد مدیریت سرورها شو.");
         }
-        vpnButton.setText(installed?"باز کردن Hiddify":"نصب Hiddify رسمی");
+        vpnButton.setText(installed?"اتصال VPN":"VPN در دسترس نیست");
         openBrowser.setEnabled(trusted);
         openBrowser.setAlpha(trusted?1f:.45f);
         try {
@@ -267,27 +266,31 @@ public final class MainActivity extends Activity {
     }
 
     private void openHiddify(){
-        if(!HiddifyBridge.open(this)) {
-            new AlertDialog.Builder(this)
-                .setTitle("نصب Hiddify رسمی")
-                .setMessage("موتور VPN این برنامه متعلق به Hiddify رسمی است. برای حفظ امنیت، نسخه رسمی را از GitHub دریافت کن.")
-                .setPositiveButton("صفحه دانلود",(d,w)->HiddifyBridge.openOfficialDownload(this))
-                .setNegativeButton("انصراف",null).show();
+        if(!HiddifyBridge.openForConnection(this)) {
+            alert="فرمان اتصال به بخش VPN تحویل نشد. گزارش فنی را بررسی کن.";
+            render();
         }else {
+            alert="";
             NetworkGate.reset();
+        }
+    }
+    private void openVpnManager(){
+        if(!HiddifyBridge.open(this)){
+            alert="بخش انتخاب سرور در دسترس نیست.";
+            render();
         }
     }
     private void sendSubscription(){
         try {
             AccountStore.Account account=vault.selected();
             if(account==null){pickAccount();return;}
-            if(!HiddifyBridge.installed(this)){openHiddify();return;}
+            if(!HiddifyBridge.installed(this)){openVpnManager();return;}
             if(!HiddifyBridge.importSubscription(this,account.subscription)){
-                alert="تحویل اشتراک به Hiddify انجام نشد؛ نسخه رسمی را نصب و به‌روز کن.";
+                alert="انتقال اشتراک به مدیریت VPN ناموفق بود.";
                 render();
             }else{
                 alert="";
-                Toast.makeText(this,"ورود اشتراک را داخل Hiddify تأیید کن.",Toast.LENGTH_LONG).show();
+                Toast.makeText(this,"اشتراک را تأیید و یک سرور انتخاب کن؛ سپس «اتصال VPN» را بزن.",Toast.LENGTH_LONG).show();
             }
         }catch(Exception e){alert="اشتراک حساب در دسترس نیست.";render();}
     }
@@ -318,9 +321,9 @@ public final class MainActivity extends Activity {
             NetworkGate.schedule(this,()->{
                 if(NetworkGate.vpnActive(this))launchBrowser();
                 else new AlertDialog.Builder(this)
-                    .setTitle("اتصال تأیید نشده")
-                    .setMessage("هیدیفای باید VPN را وصل کند و آزمون امن HTTPS با موفقیت انجام شود.")
-                    .setPositiveButton("باز کردن Hiddify",(d,w)->openHiddify())
+                    .setTitle("مرورگر هنوز قفل است")
+                    .setMessage("ابتدا VPN را وصل کن. مرورگر فقط پس از تأیید مسیر امن HTTPS باز می‌شود.")
+                    .setPositiveButton("اتصال VPN",(d,w)->openHiddify())
                     .setNegativeButton("انصراف",null).show();
             });
             return;
@@ -348,12 +351,12 @@ public final class MainActivity extends Activity {
         catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}
     }
     private void shareReport(){
-        String report="FHG external Hiddify backend\n"+
+        String report="FHG unified Hiddify-core + GeckoView\n"+
             "Android: "+android.os.Build.VERSION.SDK_INT+"\n"+
-            "Hiddify installed: "+HiddifyBridge.installed(this)+"\n"+
+            "Combined package available: "+HiddifyBridge.installed(this)+"\n"+
             "VPN network state: "+NetworkGate.status(this)+"\n"+
             "Protected session: "+NetworkGate.vpnActive(this)+"\n"+
-            "Native FHG VPN engine: disabled\n"+
+            "VPN engine: built-in Hiddify core\n"+
             "No credentials or server addresses included.";
         Intent send=new Intent(Intent.ACTION_SEND);
         send.setType("text/plain");

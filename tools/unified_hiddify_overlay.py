@@ -165,7 +165,17 @@ final class HiddifyBridge {
     private HiddifyBridge(){}
     static Intent launchIntent(Context context) {
         return new Intent(Intent.ACTION_MAIN)
-            .setClassName(context.getPackageName(),VPN_ACTIVITY);
+            .setClassName(context.getPackageName(),VPN_ACTIVITY)
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    }
+    // Explicit tap only; Hiddify itself handles profile, consent and native core.
+    static boolean openForConnection(Context context) {
+        try {
+            Intent intent=launchIntent(context);
+            intent.putExtra("fhg_connect_requested",true);
+            context.startActivity(intent);
+            return true;
+        } catch(RuntimeException failed) {return false;}
     }
     static boolean installed(Context context) {
         // Original Hiddify Activity is compiled into this ONE package.
@@ -244,6 +254,94 @@ vpn=vpn.replace('//                    addIncludePackage(builder,packageName)',
                 'addIncludePackage(builder, packageName)')
 vpn_service.write_text(vpn,encoding="utf-8")
 print("FHG: VPN-owner UID included in tunnel so embedded GeckoView cannot bypass it.")
+
+# A real one-shot connection request, handled by the original Hiddify
+# notifier, with Android VPN consent preserved. No automatic reconnection loop.
+kt=hd/"android/app/src/main/kotlin/com/hiddify/hiddify/MainActivity.kt"
+k=kt.read_text(encoding="utf-8")
+assert k.count("import android.content.Intent")==1
+k=k.replace("import android.content.Intent",
+    "import android.content.Intent\nimport io.flutter.plugin.common.MethodChannel",1)
+anchor="        flutterEngine.plugins.add(LogHandler())"
+assert k.count(anchor)==1
+k=k.replace(anchor,anchor+'''
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
+            "com.fhg.android.unified/connection").setMethodCallHandler { call, result ->
+            when(call.method) {
+                "consumeConnectRequest" -> {
+                    val requested = intent?.getBooleanExtra("fhg_connect_requested",false) == true
+                    intent?.removeExtra("fhg_connect_requested")
+                    if(requested) Log.i("FHGUnifiedBridge","connect request delivered to Flutter")
+                    result.success(requested)
+                }
+                else -> result.notImplemented()
+            }
+        }''',1)
+anchor="    fun reconnect() {"
+assert k.count(anchor)==1
+k=k.replace(anchor,'''    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("fhg_connect_requested",false)) {
+            intent.removeExtra("fhg_connect_requested")
+            flutterEngine?.let {
+                MethodChannel(it.dartExecutor.binaryMessenger,
+                    "com.fhg.android.unified/connection").invokeMethod("connectNow",null)
+            }
+        }
+    }
+
+'''+anchor,1)
+kt.write_text(k,encoding="utf-8")
+
+dart=hd/"lib/features/home/widget/home_page.dart"
+d=dart.read_text(encoding="utf-8")
+anchor="import 'package:flutter/material.dart';"
+assert d.count(anchor)==1
+d=d.replace(anchor,anchor+'''
+import 'package:flutter/services.dart';
+import 'package:hiddify/features/connection/notifier/connection_notifier.dart';''',1)
+anchor="    final activeProfile = ref.watch(activeProfileProvider);"
+assert d.count(anchor)==1
+d=d.replace(anchor,anchor+'''
+    // A user-initiated FHG Connect tap enters Hiddify's ordinary connection
+    // notifier. If there is no profile, no start occurs. Never bypass Android
+    // VPN permission prompts or report that a connection is established here.
+    useEffect(() {
+      var disposed = false;
+      const channel = MethodChannel('com.fhg.android.unified/connection');
+      Future<void> connectSelected() async {
+        if (disposed) return;
+        try {
+          final selected = await ref.read(activeProfileProvider.future);
+          if (disposed || selected == null) {
+            debugPrint('FHG_CONNECT: no active profile; select a server first');
+            return;
+          }
+          debugPrint('FHG_CONNECT: requesting native VPN start through original Hiddify notifier');
+          await ref.read(connectionNotifierProvider.notifier).mayConnect();
+        } catch (error) {
+          debugPrint('FHG_CONNECT: original notifier returned error: $error');
+        }
+      }
+      channel.setMethodCallHandler((call) async {
+        if (call.method == 'connectNow') await connectSelected();
+      });
+      Future<void> consume() async {
+        try {
+          if (await channel.invokeMethod<bool>('consumeConnectRequest') == true) {
+            await connectSelected();
+          }
+        } on PlatformException catch (error) {
+          debugPrint('FHG_CONNECT: bridge unavailable: $error');
+        }
+      }
+      Future.microtask(consume);
+      return () { disposed = true; channel.setMethodCallHandler(null); };
+    }, const []);
+''',1)
+dart.write_text(d,encoding="utf-8")
+print("FHG: explicit Connect forwards once to original Hiddify connection notifier.")
 
 # Attribution; no removal of upstream LICENSE.md or source history.
 (hd/"FHG_SOURCE_MODIFICATIONS.md").write_text(

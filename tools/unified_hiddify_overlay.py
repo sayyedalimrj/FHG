@@ -300,6 +300,7 @@ anchor="import 'package:flutter/material.dart';"
 assert d.count(anchor)==1
 d=d.replace(anchor,anchor+'''
 import 'package:flutter/services.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hiddify/features/connection/notifier/connection_notifier.dart';''',1)
 anchor="    final activeProfile = ref.watch(activeProfileProvider);"
 assert d.count(anchor)==1

@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# Prevent multiple expensive rebuilds when rapid fixes land on this branch.
+concurrency:
+  group: fhg-unified-one-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -57,12 +62,21 @@ jobs:
           test "$(grep -c 'android.intent.category.LAUNCHER' upstream/android/app/src/main/AndroidManifest.xml)" -eq 1
           grep -q 'android:name=".bg.VPNService"' upstream/android/app/src/main/AndroidManifest.xml
       - name: Download exact official Hiddify native VPN core
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p upstream/android/app/libs
-          curl -fL --retry 4 --retry-delay 4 --max-time 400 \
+          # Some runners receive 504 from GitHub's release-asset CDN.
+          # GH CLI uses the API asset endpoint as a fallback, with exact hash.
+          if ! curl -fL --retry 3 --retry-delay 5 --max-time 240 \
             "https://github.com/hiddify/hiddify-core/releases/download/v5.5.5/hiddify-lib-android.tar.gz" \
-            -o /tmp/fhg-core.tar.gz
+            -o /tmp/fhg-core.tar.gz; then
+            echo 'Direct CDN failed; downloading the identical official asset through GitHub API'
+            rm -f /tmp/fhg-core.tar.gz
+            gh release download v5.5.5 -R hiddify/hiddify-core \
+              -p 'hiddify-lib-android.tar.gz' -D /tmp --clobber
+          fi
           echo 'd428adaf1ebe94046cdf3e32354f5ef84f9c3019432205ccf2a84f10a5a03dd0  /tmp/fhg-core.tar.gz' | sha256sum -c -
           tar -xzf /tmp/fhg-core.tar.gz -C upstream/android/app/libs
           find upstream/android/app/libs -type f | head -30
@@ -96,10 +110,15 @@ jobs:
           for old in ('languageVersion = "1.6"', "languageVersion = '1.6'"):
               matches+=body.count(old)
               body=body.replace(old,old.replace('1.6','2.0'))
-          if matches!=1:
-              raise SystemExit(f'Unexpected Sentry Kotlin languageVersion anchor in {p}: {matches}')
-          p.write_text(body,encoding='utf-8')
-          print(f'FHG: upgraded Sentry Kotlin language level to 2.0 for compiler 2.4: {p}')
+          if matches>1:
+              raise SystemExit(f'Ambiguous Sentry Kotlin languageVersion anchors in {p}: {matches}')
+          if matches==1:
+              p.write_text(body,encoding='utf-8')
+              print(f'FHG: upgraded Sentry Kotlin language level to 2.0 for compiler 2.4: {p}')
+          else:
+              # Newer Sentry 8.x no longer declares the legacy 1.6 target.
+              # Do not fail solely because the obsolete patch is unnecessary.
+              print(f'FHG: Sentry no longer has a legacy 1.6 languageVersion override: {p}')
           # Old Flutter plugins use fixed compileSdk 31/33/34 even though
           # current AndroidX requires 36+. Raise compile-only SDK, NOT
           # minSdk, targetSdk, plugin runtime behavior, or app permissions.
